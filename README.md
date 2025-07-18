@@ -95,6 +95,12 @@ The plugin includes a comprehensive pytest test suite that validates functionali
 just ci
 ```
 
+**Run tests in Docker:**
+
+```bash
+just docker-ci
+```
+
 **Test coverage:**
 
 - Plugin loading and watcher lifecycle
@@ -105,6 +111,17 @@ just ci
 - Cleanup and resilience testing
 
 Tests use pexpect for real zsh interaction, GitPython for git operations, and run in isolated temporary directories with automatic cleanup.
+
+### Docker CI
+
+The project includes a fully reproducible Docker CI setup that runs tests in a containerized environment:
+
+- **Base image**: Python 3.13-slim with pinned SHA256 digest
+- **Reproducible builds**: Uses Debian snapshot archives with specific timestamps
+- **Pinned dependencies**: All system packages and tools locked to exact versions
+- **Complete toolchain**: Includes uv, just, starship, and all testing dependencies
+
+The Docker setup ensures consistent test results across different environments and can be used for local development or CI/CD pipelines.
 
 ## Contributing
 

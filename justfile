@@ -41,3 +41,8 @@ check: sync
 
 # Run all checks
 ci: lint check test-verbose
+
+# Run CI checks in Docker container
+docker-ci:
+  docker build -t git-prompt-watcher-test .
+  docker run --rm git-prompt-watcher-test

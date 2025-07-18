@@ -1182,6 +1182,10 @@ TRAPUSR1() {
                         f"fswatch process {watcher_pid} should be killed on shell exit"
                     )
                 # If it's a different process, that's fine (PID reuse)
+            except psutil.ZombieProcess:
+                # Zombie processes are being cleaned up by init - that's fine
+                # The fact that it's a zombie means the process is effectively dead
+                pass
             except psutil.AccessDenied:
                 try:
                     process_name = proc.name()
@@ -1190,6 +1194,9 @@ TRAPUSR1() {
                             f"fswatch process {watcher_pid} should be killed on "
                             f"shell exit"
                         )
+                except psutil.ZombieProcess:
+                    # If it's a zombie process, it's being cleaned up - that's fine
+                    pass
                 except psutil.AccessDenied:
                     # Can't verify, but the shell cleanup should have worked
                     pass
@@ -1300,6 +1307,7 @@ TRAPUSR1() {
         # Remove terminal artifacts
         clean = re.sub(r"PROMPT_READY", "", clean)
         clean = re.sub(r"%", "", clean)
+        clean = re.sub(r"#", "", clean)  # Remove shell job markers
         # Remove command echo patterns (terminal echo still happens despite echo=False)
         clean = re.sub(r"j*jobs", "", clean)
         # Collapse whitespace
