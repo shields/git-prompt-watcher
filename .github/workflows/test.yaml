@@ -16,5 +16,5 @@ jobs:
 
       - name: Build and run tests in Docker
         run: |
-          docker build -t git-prompt-watcher-test .
+          docker build -t git-prompt-watcher-test -f tests/Dockerfile .
           docker run --rm git-prompt-watcher-test

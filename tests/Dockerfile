@@ -22,7 +22,6 @@ RUN git config --global init.defaultBranch main
 
 WORKDIR /app
 
-COPY pyproject.toml uv.lock ./
 COPY tests/ ./tests/
 COPY git-prompt-watcher.plugin.zsh ./
 COPY justfile ./
