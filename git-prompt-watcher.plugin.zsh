@@ -122,16 +122,32 @@ _check_git_repo_change() {
     fi
 }
 
+# Safely reset prompt, avoiding interference with active zle operations
+_safe_reset_prompt() {
+    if zle; then
+        # Check if we're in the middle of completion, search, or other sensitive operations
+        case "${WIDGET:-}" in
+            expand-or-complete|complete-word|menu-*|*search*|*history*|\
+            fzf-tab-complete|fzf-tab-*|_fzf-tab-*|*fzf*)
+                # Don't interrupt these operations
+                ;;
+            *)
+                # Safe to reset prompt
+                zle reset-prompt
+                ;;
+        esac
+    fi
+}
+
 # Handle SIGUSR1 to redraw prompt
 TRAPUSR1() {
-    # Force prompt redraw by resetting PS1
-    zle && zle reset-prompt
+    _safe_reset_prompt
 }
 
 # Handle SIGUSR2 to restart watcher (when gitignore changes)
 TRAPUSR2() {
     _start_git_watcher
-    zle && zle reset-prompt
+    _safe_reset_prompt
 }
 
 # Check for git repo changes when changing directories
