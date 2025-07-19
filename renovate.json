@@ -1,34 +1,4 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
-  "packageRules": [
-    {
-      "matchManagers": ["pep621"],
-      "groupName": "Python dependencies"
-    },
-    {
-      "matchManagers": ["dockerfile"],
-      "groupName": "Docker images"
-    },
-    {
-      "matchManagers": ["github-actions"],
-      "groupName": "GitHub Actions"
-    }
-  ],
-  "pep621": {
-    "fileMatch": ["tests/pyproject\\.toml$"]
-  },
-  "dockerfile": {
-    "fileMatch": ["tests/Dockerfile$"]
-  },
-  "github-actions": {
-    "fileMatch": ["\\.github/workflows/.*\\.ya?ml$"]
-  },
-  "pinDigests": true,
-  "separateMinorPatch": false,
-  "prHourlyLimit": 2,
-  "prConcurrentLimit": 10,
-  "rangeStrategy": "bump",
-  "semanticCommits": "enabled",
-  "timezone": "UTC"
+  "extends": ["config:best-practices", ":semanticCommitsDisabled"]
 }
