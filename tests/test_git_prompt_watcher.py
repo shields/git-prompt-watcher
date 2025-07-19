@@ -19,6 +19,25 @@ from git import Repo
 
 logger = logging.getLogger(__name__)
 
+# Timeouts
+DEFAULT_SHELL_TIMEOUT = 15
+COMMAND_TIMEOUT = 5
+STARSHIP_TIMEOUT = 10
+SIGNAL_TIMEOUT = 1
+
+# Sleep intervals
+FSWATCH_DETECTION_DELAY = 0.1
+PROCESS_CLEANUP_DELAY = 0.2
+SHELL_EXIT_DELAY = 0.5
+
+# Git config
+TEST_EMAIL = "test@example.com"
+TEST_USER = "Test User"
+
+# Shell markers
+PROMPT_MARKER = "PROMPT_READY"
+SHELL_PROMPT = "test>"
+
 
 class TestGitPromptWatcher:
     """Test git-prompt-watcher plugin functionality in real zsh sessions."""
@@ -33,7 +52,7 @@ class TestGitPromptWatcher:
             return False
 
         # Give a moment for process to start properly
-        time.sleep(0.1)
+        time.sleep(FSWATCH_DETECTION_DELAY)
 
         # Check again - if fswatch isn't installed, process will have exited
         if not psutil.pid_exists(pid):
@@ -142,7 +161,7 @@ DISABLE_UPDATE_PROMPT=true
         child = pexpect.spawn(
             "zsh",
             [],
-            timeout=15,
+            timeout=DEFAULT_SHELL_TIMEOUT,
             env=env,
             encoding="utf-8",
             echo=False,
@@ -155,9 +174,9 @@ DISABLE_UPDATE_PROMPT=true
         if use_starship:
             # For Starship, wait for shell ready marker, then the prompt
             try:
-                child.expect("SHELL_READY", timeout=10)
+                child.expect("SHELL_READY", timeout=STARSHIP_TIMEOUT)
                 # Wait for initial prompt (clean repo state)
-                child.expect(["on .* ❯", "❯"], timeout=5)
+                child.expect(["on .* ❯", "❯"], timeout=COMMAND_TIMEOUT)
             except pexpect.TIMEOUT:
                 # Debug: log timeout information
                 logger.warning("Starship timeout. Buffer: %s", child.before)
@@ -165,8 +184,8 @@ DISABLE_UPDATE_PROMPT=true
                 raise
         else:
             # Wait for shell to start
-            child.expect("PROMPT_READY", timeout=5)
-            child.expect("test>", timeout=2)
+            child.expect(PROMPT_MARKER, timeout=COMMAND_TIMEOUT)
+            child.expect(SHELL_PROMPT, timeout=COMMAND_TIMEOUT)
 
         return child
 
@@ -179,8 +198,8 @@ DISABLE_UPDATE_PROMPT=true
 
         # Configure git
         with repo.config_writer() as config:
-            config.set_value("user", "email", "test@example.com")
-            config.set_value("user", "name", "Test User")
+            config.set_value("user", "email", TEST_EMAIL)
+            config.set_value("user", "name", TEST_USER)
 
         # Initial commit
         readme = self.test_repo_path / "README.md"
@@ -625,8 +644,8 @@ TRAPUSR1() {
 
         # Configure second repo
         with repo2.config_writer() as config:
-            config.set_value("user", "email", "test@example.com")
-            config.set_value("user", "name", "Test User")
+            config.set_value("user", "email", TEST_EMAIL)
+            config.set_value("user", "name", TEST_USER)
 
         # Add initial file to second repo
         readme2 = repo2_path / "README.md"
@@ -1073,8 +1092,8 @@ normal_excluded_file.txt""",
 
         # Configure second repo
         with second_repo.config_writer() as config:
-            config.set_value("user", "email", "test@example.com")
-            config.set_value("user", "name", "Test User")
+            config.set_value("user", "email", TEST_EMAIL)
+            config.set_value("user", "name", TEST_USER)
 
         # Move to second repo
         child.sendline(f"cd {second_repo_path}")
@@ -1285,8 +1304,8 @@ normal_excluded_file.txt""",
 
         # Configure repo
         with new_repo.config_writer() as config:
-            config.set_value("user", "email", "test@example.com")
-            config.set_value("user", "name", "Test User")
+            config.set_value("user", "email", TEST_EMAIL)
+            config.set_value("user", "name", TEST_USER)
 
         # Move to new repo
         child.sendline(f"cd {new_repo_path}")
