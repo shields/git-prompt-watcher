@@ -1,0 +1,40 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "packageRules": [
+    {
+      "matchFileNames": ["tests/pyproject.toml"],
+      "matchPackageNames": ["*"],
+      "groupName": "Python dependencies",
+      "schedule": ["before 6am on monday"]
+    },
+    {
+      "matchFileNames": ["tests/Dockerfile"],
+      "matchDatasources": ["docker"],
+      "groupName": "Docker images",
+      "schedule": ["before 6am on monday"]
+    },
+    {
+      "matchFileNames": [".github/workflows/*.yaml", ".github/workflows/*.yml"],
+      "matchDatasources": ["github-tags"],
+      "groupName": "GitHub Actions",
+      "schedule": ["before 6am on monday"]
+    }
+  ],
+  "pip_setup": {
+    "fileMatch": ["tests/pyproject\\.toml$"]
+  },
+  "docker": {
+    "fileMatch": ["tests/Dockerfile$"]
+  },
+  "github-actions": {
+    "fileMatch": ["\\.github/workflows/.*\\.ya?ml$"]
+  },
+  "pinDigests": true,
+  "separateMinorPatch": false,
+  "prHourlyLimit": 2,
+  "prConcurrentLimit": 10,
+  "rangeStrategy": "bump",
+  "semanticCommits": "enabled",
+  "timezone": "UTC"
+}
