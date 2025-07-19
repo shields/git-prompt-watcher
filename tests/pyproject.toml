@@ -24,6 +24,7 @@ select = [
 ]
 ignore = [
   "C90",     # Cyclomatic complexity
+  "COM812",  # Trailing commas; conflicts with formatter
   "PLR09",   # "Too many" branches, arguments, etc.
   "RUF001",  # String contains ambiguous Unicode characters
   "S101",    # Use of `assert`, which is key to pytest
