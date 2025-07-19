@@ -3,28 +3,25 @@
   "extends": ["config:recommended"],
   "packageRules": [
     {
-      "matchFileNames": ["tests/pyproject.toml"],
-      "matchPackageNames": ["*"],
+      "matchManagers": ["pep621"],
       "groupName": "Python dependencies",
       "schedule": ["before 6am on monday"]
     },
     {
-      "matchFileNames": ["tests/Dockerfile"],
-      "matchDatasources": ["docker"],
+      "matchManagers": ["dockerfile"],
       "groupName": "Docker images",
       "schedule": ["before 6am on monday"]
     },
     {
-      "matchFileNames": [".github/workflows/*.yaml", ".github/workflows/*.yml"],
-      "matchDatasources": ["github-tags"],
+      "matchManagers": ["github-actions"],
       "groupName": "GitHub Actions",
       "schedule": ["before 6am on monday"]
     }
   ],
-  "pip_setup": {
+  "pep621": {
     "fileMatch": ["tests/pyproject\\.toml$"]
   },
-  "docker": {
+  "dockerfile": {
     "fileMatch": ["tests/Dockerfile$"]
   },
   "github-actions": {
