@@ -14,3 +14,20 @@ dev = [
     "pytest>=8.4.1",
     "ruff>=0.8.0",
 ]
+
+[tool.ruff]
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+  "ALL",
+]
+ignore = [
+  "C90",     # Cyclomatic complexity
+  "PLR09",   # "Too many" branches, arguments, etc.
+  "RUF001",  # String contains ambiguous Unicode characters
+  "S101",    # Use of `assert`, which is key to pytest
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"

@@ -37,7 +37,7 @@ fix: sync fmt
 
 # Check types with ruff
 check: sync
-  cd tests && uv run --no-project ruff check . --select=E,W,F
+  cd tests && uv run --no-project ruff check .
 
 # Run all checks
 ci: lint check test-verbose

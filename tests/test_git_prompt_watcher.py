@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""
-Integration tests for git-prompt-watcher zsh plugin using pytest and pexpect.
+"""Integration tests for git-prompt-watcher zsh plugin using pytest and pexpect.
+
 Tests real shell interactions, signal handling, and prompt updates.
 """
 
+import logging
 import os
+import re
 import shutil
 import signal
-import tempfile
 import time
 from pathlib import Path
 
@@ -16,11 +17,13 @@ import psutil
 import pytest
 from git import Repo
 
+logger = logging.getLogger(__name__)
+
 
 class TestGitPromptWatcher:
     """Test git-prompt-watcher plugin functionality in real zsh sessions."""
 
-    def verify_fswatch_running(self, pid):
+    def verify_fswatch_running(self, pid: int) -> bool:
         """Verify that the given PID is actually a running fswatch process."""
         if not pid:
             return False
@@ -45,13 +48,13 @@ class TestGitPromptWatcher:
             return False
 
     @pytest.fixture(autouse=True)
-    def setup(self):
-        """Setup test environment for each test."""
+    def setup(self, tmp_path: Path) -> None:
+        """Set up test environment for each test."""
         self.project_root = Path(__file__).parent.parent
         self.plugin_path = self.project_root / "git-prompt-watcher.plugin.zsh"
 
-        # Create temporary directory for test repos
-        self.temp_dir = Path(tempfile.mkdtemp())
+        # Use pytest's tmp_path fixture for temporary directory
+        self.temp_dir = tmp_path
         self.test_repo_path = self.temp_dir / "test_repo"
 
         # Track spawned children for cleanup
@@ -64,10 +67,14 @@ class TestGitPromptWatcher:
             if child.isalive():
                 child.close()
 
-        # Cleanup filesystem
-        shutil.rmtree(self.temp_dir)
+        # tmp_path is automatically cleaned up by pytest
 
-    def get_zsh_child(self, cwd=None, use_starship=False):
+    def get_zsh_child(
+        self,
+        cwd: Path | None = None,
+        *,
+        use_starship: bool = False,
+    ) -> pexpect.spawn:
         """Get a zsh child process with the plugin loaded."""
         if cwd is None:
             cwd = self.test_repo_path
@@ -133,7 +140,13 @@ DISABLE_UPDATE_PROMPT=true
         env["HOME"] = str(self.temp_dir)  # Override home to use our configs
 
         child = pexpect.spawn(
-            "zsh", [], timeout=15, env=env, encoding="utf-8", echo=False, cwd=cwd
+            "zsh",
+            [],
+            timeout=15,
+            env=env,
+            encoding="utf-8",
+            echo=False,
+            cwd=cwd,
         )
         child.setwinsize(24, 80)  # Set reasonable terminal size
 
@@ -146,9 +159,9 @@ DISABLE_UPDATE_PROMPT=true
                 # Wait for initial prompt (clean repo state)
                 child.expect(["on .* ❯", "❯"], timeout=5)
             except pexpect.TIMEOUT:
-                # Debug: print what we got
-                print(f"Starship timeout. Buffer: {child.before}")
-                print(f"After: {child.after}")
+                # Debug: log timeout information
+                logger.warning("Starship timeout. Buffer: %s", child.before)
+                logger.warning("After: %s", child.after)
                 raise
         else:
             # Wait for shell to start
@@ -157,7 +170,7 @@ DISABLE_UPDATE_PROMPT=true
 
         return child
 
-    def create_test_repo(self):
+    def create_test_repo(self) -> Repo:
         """Create a test git repository using GitPython."""
         self.test_repo_path.mkdir(parents=True)
 
@@ -177,7 +190,7 @@ DISABLE_UPDATE_PROMPT=true
 
         return repo
 
-    def test_prerequisites(self):
+    def test_prerequisites(self) -> None:
         """Test that required tools are available."""
         # Check git
         assert shutil.which("git"), "git command should be available"
@@ -185,7 +198,7 @@ DISABLE_UPDATE_PROMPT=true
         # Check fswatch
         assert shutil.which("fswatch"), "fswatch command should be available"
 
-    def test_plugin_loads_without_error(self):
+    def test_plugin_loads_without_error(self) -> None:
         """Test that the plugin loads without errors."""
         self.create_test_repo()
         child = self.get_zsh_child()
@@ -195,7 +208,7 @@ DISABLE_UPDATE_PROMPT=true
         child.expect("Plugin loaded successfully")
         child.expect("test>")
 
-    def test_watcher_starts_in_git_repo(self):
+    def test_watcher_starts_in_git_repo(self) -> None:
         """Test that the watcher starts when in a git repository."""
         self.create_test_repo()
         child = self.get_zsh_child()
@@ -214,7 +227,7 @@ DISABLE_UPDATE_PROMPT=true
             "Watcher PID is set but fswatch is not running"
         )
 
-    def test_watcher_stops_outside_git_repo(self):
+    def test_watcher_stops_outside_git_repo(self) -> None:
         """Test that the watcher stops when outside a git repository."""
         self.create_test_repo()
         child = self.get_zsh_child()
@@ -228,7 +241,7 @@ DISABLE_UPDATE_PROMPT=true
         child.sendline("echo \"Watcher PID: '$_git_prompt_watcher_pid'\"")
         child.expect("Watcher PID: ''")
 
-    def test_file_change_triggers_fswatch(self):
+    def test_file_change_triggers_fswatch(self) -> None:
         """Test that file changes trigger fswatch monitoring."""
         self.create_test_repo()
         child = self.get_zsh_child()
@@ -255,7 +268,7 @@ DISABLE_UPDATE_PROMPT=true
             "Watcher should still be running after file change"
         )
 
-    def test_git_operations_trigger_monitoring(self):
+    def test_git_operations_trigger_monitoring(self) -> None:
         """Test that git operations are properly monitored."""
         repo = self.create_test_repo()
         child = self.get_zsh_child()
@@ -293,7 +306,7 @@ DISABLE_UPDATE_PROMPT=true
             "Watcher should handle git commits"
         )
 
-    def test_signal_handling_setup(self):
+    def test_signal_handling_setup(self) -> None:
         """Test that signal handlers are properly set up."""
         self.create_test_repo()
         child = self.get_zsh_child()
@@ -317,7 +330,7 @@ DISABLE_UPDATE_PROMPT=true
         child.expect("_stop_git_watcher")
         child.expect("test>")
 
-    def test_gitignore_change_handling(self):
+    def test_gitignore_change_handling(self) -> None:
         """Test that gitignore changes are properly handled."""
         self.create_test_repo()
         child = self.get_zsh_child()
@@ -346,7 +359,7 @@ DISABLE_UPDATE_PROMPT=true
             "Watcher should be running after gitignore change"
         )
 
-    def test_branch_switching(self):
+    def test_branch_switching(self) -> None:
         """Test that branch switching is properly monitored."""
         repo = self.create_test_repo()
         child = self.get_zsh_child()
@@ -379,7 +392,7 @@ DISABLE_UPDATE_PROMPT=true
             "Watcher should handle branch switching"
         )
 
-    def test_watcher_cleanup_on_exit(self):
+    def test_watcher_cleanup_on_exit(self) -> None:
         """Test that the _stop_git_watcher function properly clears the PID variable."""
         self.create_test_repo()
         child = self.get_zsh_child()
@@ -421,7 +434,7 @@ DISABLE_UPDATE_PROMPT=true
         child.expect("Final PID: ''")
         child.expect("test>")
 
-    def test_multiple_rapid_file_changes(self):
+    def test_multiple_rapid_file_changes(self) -> None:
         """Test that the watcher handles multiple rapid file changes."""
         repo = self.create_test_repo()
         child = self.get_zsh_child()
@@ -451,7 +464,7 @@ DISABLE_UPDATE_PROMPT=true
             "Watcher should handle rapid file changes"
         )
 
-    def test_signal_delivery_to_shell(self):
+    def test_signal_delivery_to_shell(self) -> None:
         """Test that signals are actually delivered to the shell process."""
         self.create_test_repo()
         child = self.get_zsh_child()
@@ -480,9 +493,11 @@ TRAPUSR1() {
         child.expect("USR1_RECEIVED")
         child.expect("test>")
 
-    def test_prompt_updates_with_starship(self):
-        """Test that the watcher automatically triggers prompt updates with Starship
-        when git changes occur."""
+    def test_prompt_updates_with_starship(self) -> None:
+        """Test that the watcher automatically triggers prompt updates with Starship.
+
+        Tests when git changes occur.
+        """
         self.create_test_repo()
         child = self.get_zsh_child(use_starship=True)
 
@@ -509,7 +524,7 @@ TRAPUSR1() {
         except pexpect.TIMEOUT:
             # If fswatch is not installed, the prompt won't update automatically
             pytest.fail(
-                "Prompt did not automatically update to show untracked file (?)"
+                "Prompt did not automatically update to show untracked file (?)",
             )
 
         # Verify watcher is still running after file change
@@ -532,7 +547,7 @@ TRAPUSR1() {
             "Watcher should handle git staging with Starship"
         )
 
-    def test_prompt_updates_on_branch_switch(self):
+    def test_prompt_updates_on_branch_switch(self) -> None:
         """Test that the prompt updates when switching branches with Starship."""
         # Check if starship is available
         if not shutil.which("starship"):
@@ -580,9 +595,11 @@ TRAPUSR1() {
             "Watcher should handle multiple branch switches"
         )
 
-    def test_watcher_restarts_between_different_repos(self):
-        """Test that the watcher stops and restarts when moving between
-        different git repositories."""
+    def test_watcher_restarts_between_different_repos(self) -> None:
+        """Test that the watcher stops and restarts when moving between repositories.
+
+        Tests moving between different git repositories.
+        """
         # Create first repository
         self.create_test_repo()
         child = self.get_zsh_child()
@@ -666,9 +683,11 @@ TRAPUSR1() {
         # The key point is that the watcher works in the second repo,
         # regardless of PID reuse
 
-    def test_watcher_stays_same_within_repo_subdirs(self):
-        """Test that the watcher does not restart when moving between
-        directories within the same repository."""
+    def test_watcher_stays_same_within_repo_subdirs(self) -> None:
+        """Test that the watcher does not restart when moving between directories.
+
+        Tests moving between directories within the same repository.
+        """
         self.create_test_repo()
         child = self.get_zsh_child()
 
@@ -740,7 +759,7 @@ TRAPUSR1() {
         )
         assert psutil.pid_exists(root_pid), "Watcher should still be running"
 
-    def test_adversarial_gitignore_security(self):
+    def test_adversarial_gitignore_security(self, tmp_path: Path) -> None:
         """Test that adversarial .gitignore files cannot cause security issues."""
         self.create_test_repo()
         child = self.get_zsh_child()
@@ -880,14 +899,14 @@ TRAPUSR1() {
 
         # Test 3: Verify no attack files were created
         attack_files = [
-            "/tmp/attack_file",
-            "/tmp/test_attack",
-            "/tmp/command_substitution",
-            "/tmp/backtick_substitution",
+            "attack_file",
+            "test_attack",
+            "command_substitution",
+            "backtick_substitution",
         ]
 
         for attack_file in attack_files:
-            attack_path = Path(attack_file)
+            attack_path = tmp_path / attack_file
             assert not attack_path.exists(), (
                 f"Attack file should not exist: {attack_file}"
             )
@@ -934,14 +953,10 @@ TRAPUSR1() {
         # Create a temporary global gitignore with malicious content
         global_gitignore = self.temp_dir / "global_gitignore"
         global_gitignore.write_text(
-            "\n".join(
-                [
-                    "$(malicious_command)",
-                    "; rm -rf /",
-                    "`evil_command`",
-                    "normal_pattern.txt",
-                ]
-            )
+            """$(malicious_command)
+; rm -rf /
+`evil_command`
+normal_pattern.txt""",
         )
 
         # Set the global gitignore temporarily
@@ -975,15 +990,11 @@ TRAPUSR1() {
         exclude_file = self.test_repo_path / ".git" / "info" / "exclude"
         exclude_file.parent.mkdir(parents=True, exist_ok=True)
         exclude_file.write_text(
-            "\n".join(
-                [
-                    "# This is a malicious exclude file",
-                    "$(touch /tmp/exclude_attack)",
-                    "; cat /etc/passwd",
-                    "`whoami > /tmp/user_info`",
-                    "normal_excluded_file.txt",
-                ]
-            )
+            """# This is a malicious exclude file
+$(touch /tmp/exclude_attack)
+; cat /etc/passwd
+`whoami > /tmp/user_info`
+normal_excluded_file.txt""",
         )
 
         # Give time for potential processing
@@ -995,13 +1006,14 @@ TRAPUSR1() {
         )
 
         # Verify no attack files were created
-        exclude_attacks = ["/tmp/exclude_attack", "/tmp/user_info"]
+        exclude_attacks = ["exclude_attack", "user_info"]
         for attack_file in exclude_attacks:
-            assert not Path(attack_file).exists(), (
+            attack_path = tmp_path / attack_file
+            assert not attack_path.exists(), (
                 f"Exclude attack file should not exist: {attack_file}"
             )
 
-    def test_watcher_really_stops_when_leaving_repo(self):
+    def test_watcher_really_stops_when_leaving_repo(self) -> None:
         """Verify that watchers are actually killed when leaving repositories."""
         self.create_test_repo()
         child = self.get_zsh_child()
@@ -1022,16 +1034,16 @@ TRAPUSR1() {
         # Get the actual process info for verification
         initial_process = psutil.Process(initial_pid)
 
-        # Debug: Let's check what process this actually is
+        # Debug: check what process this actually is
         try:
             initial_cmdline = initial_process.cmdline()
-            print(f"Initial process cmdline: {initial_cmdline}")
+            logger.debug("Initial process cmdline: %s", initial_cmdline)
         except psutil.AccessDenied:
             try:
                 process_name = initial_process.name()
-                print(f"Initial process name: {process_name}")
+                logger.debug("Initial process name: %s", process_name)
             except psutil.AccessDenied:
-                print(f"Cannot get process info for PID {initial_pid}")
+                logger.debug("Cannot get process info for PID %s", initial_pid)
 
         # For now, let's just verify the PID exists and continue with the test
         # The process verification is done above via psutil
@@ -1090,23 +1102,24 @@ TRAPUSR1() {
         is_fswatch = False
         try:
             new_cmdline = new_process.cmdline()
-            print(f"New process cmdline: {new_cmdline}")
+            logger.debug("New process cmdline: %s", new_cmdline)
             is_fswatch = "fswatch" in " ".join(new_cmdline)
         except psutil.AccessDenied:
             try:
                 process_name = new_process.name()
-                print(f"New process name: {process_name}")
+                logger.debug("New process name: %s", process_name)
                 is_fswatch = "fswatch" in process_name
             except psutil.AccessDenied:
-                print(f"Cannot get process info for new PID {new_pid}")
-                # If we can't get process info, assume it's working (PID might be
-                # reused)
+                # If we can't get process info, assume it's working (PID reused)
+                logger.debug("Cannot get process info for new PID %s", new_pid)
                 is_fswatch = True
 
-        # If PID reuse happened, that's OK - the important thing is that the
-        # plugin is working
+        # If PID reuse happened, that's OK - the important thing is that it works
         if not is_fswatch:
-            print(f"PID {new_pid} was reused by a different process (this is normal)")
+            logger.info(
+                "PID %s was reused by a different process (this is normal)",
+                new_pid,
+            )
 
         # Move back outside any repo
         child.sendline(f"cd {self.temp_dir}")
@@ -1125,22 +1138,26 @@ TRAPUSR1() {
                 # If it's still fswatch, that's a problem
                 if "fswatch" in " ".join(final_cmdline):
                     pytest.fail(
-                        f"fswatch process {new_pid} should be killed when leaving repo"
+                        f"fswatch process {new_pid} should be killed when leaving repo",
                     )
                 else:
-                    print(f"PID {new_pid} was reused by: {final_cmdline}")
+                    logger.debug("PID %s was reused by: %s", new_pid, final_cmdline)
             except psutil.AccessDenied:
                 try:
                     process_name = final_process.name()
                     if "fswatch" in process_name:
                         pytest.fail(
                             f"fswatch process {new_pid} should be killed when "
-                            f"leaving repo"
+                            f"leaving repo",
                         )
                     else:
-                        print(f"PID {new_pid} was reused by process: {process_name}")
+                        logger.debug(
+                            "PID %s was reused by process: %s",
+                            new_pid,
+                            process_name,
+                        )
                 except psutil.AccessDenied:
-                    print(f"Cannot verify if PID {new_pid} was reused")
+                    logger.debug("Cannot verify if PID %s was reused", new_pid)
 
         # The important test is that the PID variable is cleared and the plugin works
         # We can't reliably check for fswatch processes without knowing which
@@ -1151,7 +1168,7 @@ TRAPUSR1() {
         child.expect("Final PID: ''")
         child.expect("test>")
 
-    def test_watcher_killed_on_shell_exit(self):
+    def test_watcher_killed_on_shell_exit(self) -> None:
         """Verify that watchers are killed when the shell exits."""
         self.create_test_repo()
         child = self.get_zsh_child()
@@ -1179,7 +1196,7 @@ TRAPUSR1() {
                 # If it's still fswatch, that's a problem
                 if "fswatch" in " ".join(cmdline):
                     pytest.fail(
-                        f"fswatch process {watcher_pid} should be killed on shell exit"
+                        f"fswatch process {watcher_pid} should be killed on shell exit",
                     )
                 # If it's a different process, that's fine (PID reuse)
             except psutil.ZombieProcess:
@@ -1192,7 +1209,7 @@ TRAPUSR1() {
                     if "fswatch" in process_name:
                         pytest.fail(
                             f"fswatch process {watcher_pid} should be killed on "
-                            f"shell exit"
+                            f"shell exit",
                         )
                 except psutil.ZombieProcess:
                     # If it's a zombie process, it's being cleaned up - that's fine
@@ -1201,9 +1218,11 @@ TRAPUSR1() {
                     # Can't verify, but the shell cleanup should have worked
                     pass
 
-    def test_watcher_functionality_end_to_end(self):
-        """Test that the watcher actually works by verifying it can detect
-        file changes."""
+    def test_watcher_functionality_end_to_end(self) -> None:
+        """Test that the watcher actually works by verifying it can detect file changes.
+
+        Tests file change detection.
+        """
         self.create_test_repo()
         child = self.get_zsh_child()
 
@@ -1248,12 +1267,12 @@ TRAPUSR1() {
                 cmdline = proc.cmdline()
                 # If it's still our fswatch process, that's a problem
                 if "fswatch" in " ".join(cmdline) and str(
-                    self.test_repo_path
+                    self.test_repo_path,
                 ) in " ".join(cmdline):
                     # Check if it's monitoring our test repo - if so, cleanup failed
                     pytest.fail(
                         f"fswatch process {initial_pid} should be cleaned up when "
-                        f"leaving repo"
+                        f"leaving repo",
                     )
             except psutil.AccessDenied:
                 # Can't verify, but the plugin should have cleaned up
@@ -1293,10 +1312,8 @@ TRAPUSR1() {
         # Watcher should still be running
         assert psutil.pid_exists(new_pid), "New watcher should handle file changes"
 
-    def _clean_jobs_output(self, raw_output):
+    def _clean_jobs_output(self, raw_output: str) -> str:
         """Clean jobs output by removing ANSI sequences and terminal artifacts."""
-        import re
-
         clean = raw_output.strip()
         # Remove ANSI escape sequences
         clean = re.sub(r"\x1b\[[?0-9;]*[mKJhlr]", "", clean)
@@ -1311,12 +1328,13 @@ TRAPUSR1() {
         # Remove command echo patterns (terminal echo still happens despite echo=False)
         clean = re.sub(r"j*jobs", "", clean)
         # Collapse whitespace
-        clean = re.sub(r"\s+", " ", clean).strip()
-        return clean
+        return re.sub(r"\s+", " ", clean).strip()
 
-    def test_fswatch_jobs_not_cluttering_output(self):
-        """Test that fswatch processes don't appear in shell jobs output and
-        jobs table is empty."""
+    def test_fswatch_jobs_not_cluttering_output(self) -> None:
+        """Test that fswatch processes don't appear in shell jobs output.
+
+        Verifies that the jobs table is empty.
+        """
         self.create_test_repo()
         child = self.get_zsh_child()
 
