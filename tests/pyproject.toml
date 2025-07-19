@@ -4,7 +4,9 @@ name = "git-prompt-watcher"
 version = "0"
 requires-python = ">=3.13"
 
-[dependency-groups]
+# Using PEP 621 format instead of PEP 735 [dependency-groups] because
+# Renovate's pep621 manager doesn't support dependency-groups yet
+[project.optional-dependencies]
 dev = [
     "gitpython>=3.1.44",
     "pexpect>=4.9.0",

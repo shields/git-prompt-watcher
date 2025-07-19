@@ -16,7 +16,7 @@ name = "git-prompt-watcher"
 version = "0"
 source = { virtual = "." }
 
-[package.dev-dependencies]
+[package.optional-dependencies]
 dev = [
     { name = "gitpython" },
     { name = "pexpect" },
@@ -26,15 +26,14 @@ dev = [
 ]
 
 [package.metadata]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "gitpython", specifier = ">=3.1.44" },
-    { name = "pexpect", specifier = ">=4.9.0" },
-    { name = "psutil", specifier = ">=7.0.0" },
-    { name = "pytest", specifier = ">=8.4.1" },
-    { name = "ruff", specifier = ">=0.8.0" },
+requires-dist = [
+    { name = "gitpython", marker = "extra == 'dev'", specifier = ">=3.1.44" },
+    { name = "pexpect", marker = "extra == 'dev'", specifier = ">=4.9.0" },
+    { name = "psutil", marker = "extra == 'dev'", specifier = ">=7.0.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.1" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8.0" },
 ]
+provides-extras = ["dev"]
 
 [[package]]
 name = "gitdb"

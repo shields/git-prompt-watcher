@@ -4,7 +4,7 @@ default:
 
 # Install dependencies
 sync:
-  cd tests && uv sync --dev
+  cd tests && uv sync --extra dev
 
 # Run tests
 test: sync
