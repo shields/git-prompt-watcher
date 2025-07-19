@@ -66,6 +66,46 @@ class TestGitPromptWatcher:
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return False
 
+    def get_watcher_pid(self, child: pexpect.spawn) -> int:
+        """Get the current watcher PID from the shell."""
+        child.sendline("echo $_git_prompt_watcher_pid")
+        child.expect(r"(\d+)\r\n")
+        pid = int(child.match.group(1))
+        child.expect(SHELL_PROMPT)
+        return pid
+
+    def get_and_verify_watcher_pid(self, child: pexpect.spawn) -> int:
+        """Get watcher PID and verify it's running."""
+        pid = self.get_watcher_pid(child)
+        assert self.verify_fswatch_running(pid), "fswatch should be running"
+        return pid
+
+    def wait_for_prompt(self, child: pexpect.spawn) -> None:
+        """Wait for shell prompt to appear."""
+        child.expect(PROMPT_MARKER)
+        child.expect(SHELL_PROMPT)
+
+    def configure_git_repo(self, repo: Repo) -> None:
+        """Configure a git repository with test user settings."""
+        with repo.config_writer() as config:
+            config.set_value("user", "email", TEST_EMAIL)
+            config.set_value("user", "name", TEST_USER)
+
+    def create_and_commit_file(
+        self,
+        repo: Repo,
+        filename: str,
+        content: str = "test content",
+        commit_msg: str | None = None,
+    ) -> Path:
+        """Create a file in the repository and commit it."""
+        repo_path = Path(repo.working_dir)
+        file_path = repo_path / filename
+        file_path.write_text(content)
+        repo.index.add([filename])
+        repo.index.commit(commit_msg or f"Add {filename}")
+        return file_path
+
     @pytest.fixture(autouse=True)
     def setup(self, tmp_path: Path) -> None:
         """Set up test environment for each test."""
@@ -197,15 +237,12 @@ DISABLE_UPDATE_PROMPT=true
         repo = Repo.init(self.test_repo_path)
 
         # Configure git
-        with repo.config_writer() as config:
-            config.set_value("user", "email", TEST_EMAIL)
-            config.set_value("user", "name", TEST_USER)
+        self.configure_git_repo(repo)
 
         # Initial commit
-        readme = self.test_repo_path / "README.md"
-        readme.write_text("# Test repo\n")
-        repo.index.add(["README.md"])
-        repo.index.commit("Initial commit")
+        self.create_and_commit_file(
+            repo, "README.md", "# Test repo\n", "Initial commit",
+        )
 
         return repo
 
@@ -265,15 +302,8 @@ DISABLE_UPDATE_PROMPT=true
         self.create_test_repo()
         child = self.get_zsh_child()
 
-        # Get the watcher PID
-        child.sendline("echo $_git_prompt_watcher_pid")
-        child.expect(r"(\d+)\r\n")
-        watcher_pid = int(child.match.group(1))
-
-        # Verify the process is running
-        assert self.verify_fswatch_running(watcher_pid), (
-            f"Watcher process {watcher_pid} should be fswatch"
-        )
+        # Get the watcher PID and verify it's running
+        watcher_pid = self.get_and_verify_watcher_pid(child)
 
         # Create a new file directly
         new_file = self.test_repo_path / "newfile.txt"
@@ -292,13 +322,8 @@ DISABLE_UPDATE_PROMPT=true
         repo = self.create_test_repo()
         child = self.get_zsh_child()
 
-        # Get the watcher PID
-        child.sendline("echo $_git_prompt_watcher_pid")
-        child.expect(r"(\d+)\r\n")
-        watcher_pid = int(child.match.group(1))
-
-        # Verify fswatch is actually running
-        assert self.verify_fswatch_running(watcher_pid), "fswatch should be running"
+        # Get the watcher PID and verify it's running
+        watcher_pid = self.get_and_verify_watcher_pid(child)
 
         # Perform git operations using GitPython
         staged_file = self.test_repo_path / "staged.txt"
