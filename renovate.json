@@ -1,31 +1,51 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
+  "extends": [
+    "config:recommended"
+  ],
   "packageRules": [
     {
-      "matchManagers": ["pep621"],
+      "matchManagers": [
+        "pep621"
+      ],
       "groupName": "Python dependencies",
-      "schedule": ["before 6am on monday"]
+      "schedule": [
+        "before 6am on monday"
+      ]
     },
     {
-      "matchManagers": ["dockerfile"],
+      "matchManagers": [
+        "dockerfile"
+      ],
       "groupName": "Docker images",
-      "schedule": ["before 6am on monday"]
+      "schedule": [
+        "before 6am on monday"
+      ]
     },
     {
-      "matchManagers": ["github-actions"],
+      "matchManagers": [
+        "github-actions"
+      ],
       "groupName": "GitHub Actions",
-      "schedule": ["before 6am on monday"]
+      "schedule": [
+        "before 6am on monday"
+      ]
     }
   ],
   "pep621": {
-    "fileMatch": ["tests/pyproject\\.toml$"]
+    "managerFilePatterns": [
+      "/tests/pyproject\\.toml$/"
+    ]
   },
   "dockerfile": {
-    "fileMatch": ["tests/Dockerfile$"]
+    "managerFilePatterns": [
+      "/tests/Dockerfile$/"
+    ]
   },
   "github-actions": {
-    "fileMatch": ["\\.github/workflows/.*\\.ya?ml$"]
+    "managerFilePatterns": [
+      "/\\.github/workflows/.*\\.ya?ml$/"
+    ]
   },
   "pinDigests": true,
   "separateMinorPatch": false,
