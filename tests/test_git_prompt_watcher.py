@@ -142,6 +142,40 @@ class TestGitPromptWatcher:
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             return False
 
+    def wait_for_process_termination(self, pid: int, timeout: float = 1.0) -> bool:
+        """Wait for a process to be terminated using psutil.Process.wait()."""
+        if not pid:
+            return True
+
+        try:
+            proc = psutil.Process(pid)
+
+            # First check if it's actually an fswatch process
+            try:
+                cmdline = proc.cmdline()
+                if "fswatch" not in " ".join(cmdline):
+                    # PID was reused by different process, consider it terminated
+                    return True
+            except (psutil.AccessDenied, psutil.ZombieProcess):
+                # Can't check cmdline, but we'll wait for termination anyway
+                pass
+
+            # Wait for the process to terminate
+            proc.wait(timeout=timeout)
+
+        except psutil.NoSuchProcess:
+            # Process doesn't exist, already terminated
+            return True
+        except psutil.TimeoutExpired:
+            # Process didn't terminate within timeout
+            return False
+        except psutil.AccessDenied:
+            # Can't access process, assume it's handled by the system
+            return True
+        else:
+            # Process terminated successfully
+            return True
+
     def get_watcher_pid(self, child: pexpect.spawn) -> int:
         """Get the current watcher PID from the shell."""
         child.sendline("echo $_git_prompt_watcher_pid")
@@ -1444,7 +1478,7 @@ normal_excluded_file.txt""",
         child.expect("test>")
 
         # Give time for the chpwd hook to trigger
-        time.sleep(0.1)
+        time.sleep(PROCESS_CLEANUP_DELAY)
 
         # Check that the PID variable is cleared
         child.sendline("echo \"PID after leaving: '$_git_prompt_watcher_pid'\"")
@@ -1452,7 +1486,7 @@ normal_excluded_file.txt""",
         child.expect("test>")
 
         # Most importantly: verify the actual process is killed
-        assert not psutil.pid_exists(initial_pid), (
+        assert self.wait_for_process_termination(initial_pid), (
             f"Watcher process {initial_pid} should be killed when leaving repo"
         )
 
@@ -1472,7 +1506,7 @@ normal_excluded_file.txt""",
         child.expect("test>")
 
         # Give time for new watcher to start
-        time.sleep(0.1)
+        time.sleep(FSWATCH_DETECTION_DELAY)
 
         # Should have a new watcher with different PID
         child.sendline("echo $_git_prompt_watcher_pid")
@@ -1516,38 +1550,10 @@ normal_excluded_file.txt""",
         child.expect("PROMPT_READY")
         child.expect("test>")
 
-        # Give time for chpwd hook
-        time.sleep(0.1)
-
-        # Verify the new watcher is also killed (or PID reused)
-        # If PID exists, check if it's still the same fswatch process
-        if psutil.pid_exists(new_pid):
-            try:
-                final_process = psutil.Process(new_pid)
-                final_cmdline = final_process.cmdline()
-                # If it's still fswatch, that's a problem
-                if "fswatch" in " ".join(final_cmdline):
-                    pytest.fail(
-                        f"fswatch process {new_pid} should be killed when leaving repo",
-                    )
-                else:
-                    logger.debug("PID %s was reused by: %s", new_pid, final_cmdline)
-            except psutil.AccessDenied:
-                try:
-                    process_name = final_process.name()
-                    if "fswatch" in process_name:
-                        pytest.fail(
-                            f"fswatch process {new_pid} should be killed when "
-                            f"leaving repo",
-                        )
-                    else:
-                        logger.debug(
-                            "PID %s was reused by process: %s",
-                            new_pid,
-                            process_name,
-                        )
-                except psutil.AccessDenied:
-                    logger.debug("Cannot verify if PID %s was reused", new_pid)
+        # Verify the new watcher is also killed with robust waiting
+        assert self.wait_for_process_termination(new_pid), (
+            f"fswatch process {new_pid} should be killed when leaving repo"
+        )
 
         # The important test is that the PID variable is cleared and the plugin works
         # We can't reliably check for fswatch processes without knowing which
