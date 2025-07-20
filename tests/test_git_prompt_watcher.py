@@ -204,6 +204,31 @@ class TestGitPromptWatcher:
 
         # tmp_path is automatically cleaned up by pytest
 
+    @pytest.fixture
+    def test_repo(self) -> Repo:
+        """Create a configured test git repository."""
+        return self.create_test_repo()
+
+    @pytest.fixture
+    def zsh_child(self) -> pexpect.spawn:
+        """Get a zsh child process with plugin loaded."""
+        return self.get_zsh_child()
+
+    @pytest.fixture
+    def repo_with_child(self) -> tuple[Repo, pexpect.spawn]:
+        """Get both a test repo and zsh child process."""
+        repo = self.create_test_repo()
+        child = self.get_zsh_child()
+        return repo, child
+
+    @pytest.fixture
+    def verified_watcher(self) -> tuple[Repo, pexpect.spawn, int]:
+        """Get repo, child, and verified watcher PID."""
+        repo = self.create_test_repo()
+        child = self.get_zsh_child()
+        pid = self.get_and_verify_watcher_pid(child)
+        return repo, child, pid
+
     def get_zsh_child(
         self,
         cwd: Path | None = None,
@@ -333,31 +358,24 @@ DISABLE_UPDATE_PROMPT=true
         # Check fswatch
         assert shutil.which("fswatch"), "fswatch command should be available"
 
-    def test_plugin_loads_without_error(self) -> None:
+    def test_plugin_loads_without_error(
+        self, repo_with_child: tuple[Repo, pexpect.spawn]
+    ) -> None:
         """Test that the plugin loads without errors."""
-        self.create_test_repo()
-        child = self.get_zsh_child()
+        _repo, child = repo_with_child
 
         # Plugin should have loaded successfully
         child.sendline("echo 'Plugin loaded successfully'")
         child.expect("Plugin loaded successfully")
         child.expect("test>")
 
-    def test_watcher_starts_in_git_repo(self) -> None:
+    def test_watcher_starts_in_git_repo(
+        self, verified_watcher: tuple[Repo, pexpect.spawn, int]
+    ) -> None:
         """Test that the watcher starts when in a git repository."""
-        self.create_test_repo()
-        child = self.get_zsh_child()
-
-        # Check if watcher PID is set
-        child.sendline('echo "Watcher PID: $_git_prompt_watcher_pid"')
-        child.expect("Watcher PID: ")
-
-        # Should have a PID (not empty)
-        index = child.expect([r"Watcher PID: \s*\r\n", r"Watcher PID: (\d+)"])
-        assert index == 1, "Watcher PID should not be empty in git repo"
+        _repo, _child, watcher_pid = verified_watcher
 
         # Verify the PID is actually a running fswatch process
-        watcher_pid = int(child.match.group(1))
         assert self.verify_fswatch_running(watcher_pid), (
             "Watcher PID is set but fswatch is not running"
         )
@@ -429,10 +447,11 @@ DISABLE_UPDATE_PROMPT=true
             "Watcher should handle git commits"
         )
 
-    def test_signal_handling_setup(self) -> None:
+    def test_signal_handling_setup(
+        self, repo_with_child: tuple[Repo, pexpect.spawn]
+    ) -> None:
         """Test that signal handlers are properly set up."""
-        self.create_test_repo()
-        child = self.get_zsh_child()
+        _repo, child = repo_with_child
 
         # Check if TRAPUSR1 is defined
         child.sendline("declare -f TRAPUSR1")
