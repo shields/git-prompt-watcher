@@ -12,6 +12,7 @@ dev = [
     "pexpect>=4.9.0",
     "psutil>=7.0.0",
     "pytest>=8.4.1",
+    "pytest-xdist>=3.6.0",
     "ruff>=0.8.0",
 ]
 
@@ -32,3 +33,8 @@ ignore = [
 
 [tool.ruff.lint.pydocstyle]
 convention = "pep257"
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore::DeprecationWarning:pty",
+]

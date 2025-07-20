@@ -8,11 +8,11 @@ sync:
 
 # Run tests
 test: sync
-  cd tests && uv run --no-project pytest
+  cd tests && uv run --no-project pytest -n auto
 
 # Run tests with verbose output
 test-verbose: sync
-  cd tests && uv run --no-project pytest -v
+  cd tests && uv run --no-project pytest -n auto -v
 
 # Clean up build artifacts
 clean:
