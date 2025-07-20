@@ -26,15 +26,15 @@ _start_git_watcher() {
     if git rev-parse --git-dir >/dev/null 2>&1; then
         local git_dir=$(git rev-parse --git-dir 2>/dev/null)
         if [[ -n "$git_dir" ]]; then
-            # Get git-ignored files and create exclude patterns for fswatch
-            local exclude_args=(--exclude='.git/objects/.*' --exclude='.git/logs/.*')
+            # Create temporary filter file for fswatch exclude patterns
+            local filter_file=$(mktemp)
 
-            # Add gitignored patterns
-            while IFS= read -r ignored_file; do
-                if [[ -n "$ignored_file" ]]; then
-                    exclude_args+=(--exclude="$ignored_file")
-                fi
-            done < <(git ls-files --others --ignored --exclude-standard --directory 2>/dev/null | sed 's|/$|/.*|')
+            # Add basic exclude patterns to filter file
+            {
+                echo '.git/objects/.*'
+                echo '.git/logs/.*'
+                git ls-files --others --ignored --exclude-standard --directory 2>/dev/null | sed 's|/$|/.*|'
+            } > "$filter_file"
 
             # Find gitignore files to watch for changes
             local gitignore_files=()
@@ -57,14 +57,15 @@ _start_git_watcher() {
 
             # Start fswatch in background and get its PID
             fswatch -o \
+                    --filter-from="$filter_file" \
+                    --latency=0.1 \
+                    -- \
                     "$git_dir/index" \
                     "$git_dir/HEAD" \
                     "$git_dir/refs" \
                     "$git_dir/info/exclude" \
                     "${gitignore_files[@]}" \
                     "${repo_root:-$PWD}" \
-                    "${exclude_args[@]}" \
-                    --latency=0.1 \
                     2>/dev/null > "$pipe_file" &!
             local fswatch_pid=$!
 
@@ -89,8 +90,8 @@ _start_git_watcher() {
                     fi
                 done 3< "$pipe_file"
 
-                # Clean up pipe when done
-                rm -f "$pipe_file"
+                # Clean up pipe and filter file when done
+                rm -f "$pipe_file" "$filter_file"
             } &!
 
             # Store the fswatch PID, not the reader PID
