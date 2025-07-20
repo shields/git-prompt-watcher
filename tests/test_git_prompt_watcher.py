@@ -38,6 +38,82 @@ TEST_USER = "Test User"
 PROMPT_MARKER = "PROMPT_READY"
 SHELL_PROMPT = "test>"
 
+# Security test data
+MALICIOUS_GITIGNORE_PATTERNS = [
+    # Try to inject shell commands
+    "normal_file.txt",
+    "; rm -rf /tmp/test_attack",  # Command injection attempt
+    "$(echo 'command_substitution')",  # Command substitution
+    "`echo 'backtick_substitution'`",  # Backtick substitution
+    "file && echo 'logical_and'",  # Logical operators
+    "file || echo 'logical_or'",
+    "file | echo 'pipe'",  # Pipe operator
+    "file; echo 'semicolon'",  # Command separator
+    "file\necho 'newline'",  # Newline injection
+    "file\recho 'carriage_return'",  # Carriage return
+    "file\techo 'tab'",  # Tab character
+    # Special characters that might break parsing
+    "file with spaces",
+    "file'with'quotes",
+    'file"with"double"quotes',
+    "file\\with\\backslashes",
+    "file$with$dollar$signs",
+    "file#with#hash",
+    "file%with%percent",
+    "file&with&ampersand",
+    "file*with*asterisk",
+    "file?with?question",
+    "file[with]brackets",
+    "file{with}braces",
+    "file(with)parentheses",
+    "file<with>angles",
+    "file=with=equals",
+    "file+with+plus",
+    "file-with-dash",
+    "file_with_underscore",
+    "file.with.dots",
+    "file/with/slashes",
+    "file\\\\with\\\\double\\\\backslashes",
+    # Unicode and special encodings
+    "file\u0000with\u0000null",  # Null bytes
+    "file\u001bwith\u001bescape",  # Escape sequences
+    "file\u00ffwith\u00ffhigh",  # High bytes
+    "file\u2028with\u2028line\u2028separator",  # Unicode line separator
+    "file\u2029with\u2029paragraph\u2029separator",  # Unicode paragraph separator
+    # Very long patterns (potential buffer overflow)
+    "a" * 1000,
+    "b" * 10000,
+    # Path traversal attempts
+    "../../../etc/passwd",
+    "..\\..\\..\\windows\\system32\\config\\sam",
+    "/etc/shadow",
+    "/dev/null",
+    "/dev/zero",
+    "/dev/random",
+    "/proc/self/exe",
+    # Glob patterns that might cause issues
+    "**/**/***/**",
+    "*" * 100,
+    "?" * 100,
+    "[" * 100,
+    "]" * 100,
+    "{" * 100,
+    "}" * 100,
+    # Regular expression special characters
+    "file.*with.*regex",
+    "file.+with.+regex",
+    "file.{1,100}with.{1,100}regex",
+    "file^with^caret",
+    "file$with$dollar$end",
+    # Control characters
+    "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f",
+    "\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f",
+    # Format string attacks
+    "%s%s%s%s%s%s%s%s%s%s",
+    "%x%x%x%x%x%x%x%x%x%x",
+    "%n%n%n%n%n%n%n%n%n%n",
+]
+
 
 class TestGitPromptWatcher:
     """Test git-prompt-watcher plugin functionality in real zsh sessions."""
@@ -241,7 +317,10 @@ DISABLE_UPDATE_PROMPT=true
 
         # Initial commit
         self.create_and_commit_file(
-            repo, "README.md", "# Test repo\n", "Initial commit",
+            repo,
+            "README.md",
+            "# Test repo\n",
+            "Initial commit",
         )
 
         return repo
@@ -803,8 +882,8 @@ TRAPUSR1() {
         )
         assert psutil.pid_exists(root_pid), "Watcher should still be running"
 
-    def test_adversarial_gitignore_security(self, tmp_path: Path) -> None:
-        """Test that adversarial .gitignore files cannot cause security issues."""
+    def test_command_injection_via_gitignore_patterns(self) -> None:
+        """Test that command injection via gitignore patterns is safely handled."""
         self.create_test_repo()
         child = self.get_zsh_child()
 
@@ -817,86 +896,9 @@ TRAPUSR1() {
         # Verify initial watcher is running
         assert psutil.pid_exists(initial_pid), "Initial watcher should be running"
 
-        # Test 1: Command injection via gitignore patterns
+        # Test command injection via gitignore patterns using the global constant
         malicious_gitignore = self.test_repo_path / ".gitignore"
-        malicious_patterns = [
-            # Try to inject shell commands
-            "normal_file.txt",
-            "; rm -rf /tmp/test_attack",  # Command injection attempt
-            "$(echo 'command_substitution')",  # Command substitution
-            "`echo 'backtick_substitution'`",  # Backtick substitution
-            "file && echo 'logical_and'",  # Logical operators
-            "file || echo 'logical_or'",
-            "file | echo 'pipe'",  # Pipe operator
-            "file; echo 'semicolon'",  # Command separator
-            "file\necho 'newline'",  # Newline injection
-            "file\recho 'carriage_return'",  # Carriage return
-            "file\techo 'tab'",  # Tab character
-            # Special characters that might break parsing
-            "file with spaces",
-            "file'with'quotes",
-            'file"with"double"quotes',
-            "file\\with\\backslashes",
-            "file$with$dollar$signs",
-            "file#with#hash",
-            "file%with%percent",
-            "file&with&ampersand",
-            "file*with*asterisk",
-            "file?with?question",
-            "file[with]brackets",
-            "file{with}braces",
-            "file(with)parentheses",
-            "file<with>angles",
-            "file=with=equals",
-            "file+with+plus",
-            "file-with-dash",
-            "file_with_underscore",
-            "file.with.dots",
-            "file/with/slashes",
-            "file\\\\with\\\\double\\\\backslashes",
-            # Unicode and special encodings
-            "file\u0000with\u0000null",  # Null bytes
-            "file\u001bwith\u001bescape",  # Escape sequences
-            "file\u00ffwith\u00ffhigh",  # High bytes
-            "file\u2028with\u2028line\u2028separator",  # Unicode line separator
-            "file\u2029with\u2029paragraph\u2029separator",  # Unicode
-            # paragraph separator
-            # Very long patterns (potential buffer overflow)
-            "a" * 1000,
-            "b" * 10000,
-            # Path traversal attempts
-            "../../../etc/passwd",
-            "..\\..\\..\\windows\\system32\\config\\sam",
-            "/etc/shadow",
-            "/dev/null",
-            "/dev/zero",
-            "/dev/random",
-            "/proc/self/exe",
-            # Glob patterns that might cause issues
-            "**/**/***/**",
-            "*" * 100,
-            "?" * 100,
-            "[" * 100,
-            "]" * 100,
-            "{" * 100,
-            "}" * 100,
-            # Regular expression special characters
-            "file.*with.*regex",
-            "file.+with.+regex",
-            "file.{1,100}with.{1,100}regex",
-            "file^with^caret",
-            "file$with$dollar$end",
-            # Control characters
-            "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f",
-            "\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f",
-            # Format string attacks
-            "%s%s%s%s%s%s%s%s%s%s",
-            "%x%x%x%x%x%x%x%x%x%x",
-            "%n%n%n%n%n%n%n%n%n%n",
-        ]
-
-        # Write malicious gitignore
-        malicious_gitignore.write_text("\n".join(malicious_patterns))
+        malicious_gitignore.write_text("\n".join(MALICIOUS_GITIGNORE_PATTERNS))
 
         # Give time for fswatch to detect gitignore change (should restart watcher)
         time.sleep(0.2)
@@ -910,7 +912,21 @@ TRAPUSR1() {
         # Watcher should be running (potentially with new PID due to restart)
         assert psutil.pid_exists(new_pid), "Watcher should survive malicious gitignore"
 
-        # Test 2: Malicious gitignore file paths
+    def test_malicious_gitignore_file_paths(self) -> None:
+        """Test that malicious gitignore file paths are safely handled."""
+        self.create_test_repo()
+        child = self.get_zsh_child()
+
+        # Get initial watcher PID
+        child.sendline("echo $_git_prompt_watcher_pid")
+        child.expect(r"(\d+)\r\n")
+        initial_pid = int(child.match.group(1))
+        child.expect("test>")
+
+        # Verify initial watcher is running
+        assert psutil.pid_exists(initial_pid), "Initial watcher should be running"
+
+        # Test malicious gitignore file paths
         malicious_paths = [
             # Try to create gitignore files in dangerous locations
             ".gitignore; touch /tmp/attack_file",
@@ -931,7 +947,7 @@ TRAPUSR1() {
                 time.sleep(0.1)
 
                 # Watcher should still be running
-                assert psutil.pid_exists(new_pid), (
+                assert psutil.pid_exists(initial_pid), (
                     f"Watcher should survive malicious path: {malicious_path}"
                 )
 
@@ -941,7 +957,18 @@ TRAPUSR1() {
                 # Some malicious paths might not be valid filenames - that's OK
                 pass
 
-        # Test 3: Verify no attack files were created
+    def test_no_attack_files_created(self, tmp_path: Path) -> None:
+        """Test that no attack files are created during security testing."""
+        self.create_test_repo()
+
+        # Create a malicious gitignore to trigger potential attacks
+        malicious_gitignore = self.test_repo_path / ".gitignore"
+        malicious_gitignore.write_text("\n".join(MALICIOUS_GITIGNORE_PATTERNS))
+
+        # Give time for processing
+        time.sleep(0.2)
+
+        # Verify no attack files were created
         attack_files = [
             "attack_file",
             "test_attack",
@@ -955,12 +982,42 @@ TRAPUSR1() {
                 f"Attack file should not exist: {attack_file}"
             )
 
-        # Test 4: Verify shell is still functional
+    def test_shell_functionality_after_security_test(self) -> None:
+        """Test that shell remains functional after processing malicious gitignore."""
+        self.create_test_repo()
+        child = self.get_zsh_child()
+
+        # Create a malicious gitignore to trigger potential attacks
+        malicious_gitignore = self.test_repo_path / ".gitignore"
+        malicious_gitignore.write_text("\n".join(MALICIOUS_GITIGNORE_PATTERNS))
+
+        # Give time for processing
+        time.sleep(0.2)
+
+        # Verify shell is still functional
         child.sendline("echo 'shell_still_works'")
         child.expect("shell_still_works")
         child.expect("test>")
 
-        # Test 5: Verify watcher is still monitoring normally
+    def test_watcher_monitoring_after_security_test(self) -> None:
+        """Test that watcher continues monitoring normally after security test."""
+        self.create_test_repo()
+        child = self.get_zsh_child()
+
+        # Create a malicious gitignore to trigger potential attacks
+        malicious_gitignore = self.test_repo_path / ".gitignore"
+        malicious_gitignore.write_text("\n".join(MALICIOUS_GITIGNORE_PATTERNS))
+
+        # Give time for processing
+        time.sleep(0.2)
+
+        # Get current watcher PID
+        child.sendline("echo $_git_prompt_watcher_pid")
+        child.expect(r"(\d+)\r\n")
+        watcher_pid = int(child.match.group(1))
+        child.expect("test>")
+
+        # Verify watcher is still monitoring normally
         normal_file = self.test_repo_path / "normal_test.txt"
         normal_file.write_text("normal content")
 
@@ -968,11 +1025,19 @@ TRAPUSR1() {
         time.sleep(0.1)
 
         # Watcher should still be running and monitoring
-        assert psutil.pid_exists(new_pid), (
+        assert psutil.pid_exists(watcher_pid), (
             "Watcher should continue monitoring after adversarial test"
         )
 
-        # Test 6: Test with extremely large gitignore file
+    def test_extremely_large_gitignore_file(self) -> None:
+        """Test that extremely large gitignore files are handled gracefully."""
+        self.create_test_repo()
+        child = self.get_zsh_child()
+
+        # Verify initial watcher is running
+        self.get_and_verify_watcher_pid(child)
+
+        # Test with extremely large gitignore file
         large_gitignore = self.test_repo_path / ".gitignore_large"
         large_patterns = ["pattern" + str(i) for i in range(10000)]
         large_gitignore.write_text("\n".join(large_patterns))
@@ -993,7 +1058,12 @@ TRAPUSR1() {
         # Clean up large file
         large_gitignore.unlink()
 
-        # Test 7: Test with malicious global gitignore
+    def test_malicious_global_gitignore(self) -> None:
+        """Test that malicious global gitignore files are handled safely."""
+        self.create_test_repo()
+        child = self.get_zsh_child()
+
+        # Test with malicious global gitignore
         # Create a temporary global gitignore with malicious content
         global_gitignore = self.temp_dir / "global_gitignore"
         global_gitignore.write_text(
@@ -1030,7 +1100,18 @@ normal_pattern.txt""",
         child.sendline("git config --global --unset core.excludesfile")
         child.expect("test>")
 
-        # Test 8: Test with malicious .git/info/exclude file
+    def test_malicious_git_info_exclude(self, tmp_path: Path) -> None:
+        """Test that malicious .git/info/exclude files are handled safely."""
+        self.create_test_repo()
+        child = self.get_zsh_child()
+
+        # Get initial watcher PID
+        child.sendline("echo $_git_prompt_watcher_pid")
+        child.expect(r"(\d+)\r\n")
+        initial_pid = int(child.match.group(1))
+        child.expect("test>")
+
+        # Test with malicious .git/info/exclude file
         exclude_file = self.test_repo_path / ".git" / "info" / "exclude"
         exclude_file.parent.mkdir(parents=True, exist_ok=True)
         exclude_file.write_text(
@@ -1045,7 +1126,253 @@ normal_excluded_file.txt""",
         time.sleep(0.1)
 
         # Watcher should still be running
+        assert psutil.pid_exists(initial_pid), (
+            "Watcher should handle malicious .git/info/exclude"
+        )
+
+        # Verify no attack files were created
+        exclude_attacks = ["exclude_attack", "user_info"]
+        for attack_file in exclude_attacks:
+            attack_path = tmp_path / attack_file
+            assert not attack_path.exists(), (
+                f"Exclude attack file should not exist: {attack_file}"
+            )
+
+    def test_malicious_gitignore_patterns_security(self) -> None:
+        """Test that malicious .gitignore patterns cannot cause security issues."""
+        self.create_test_repo()
+        child = self.get_zsh_child()
+
+        # Verify initial watcher is running
+        self.get_and_verify_watcher_pid(child)
+
+        # Write malicious gitignore with command injection patterns
+        malicious_gitignore = self.test_repo_path / ".gitignore"
+        malicious_gitignore.write_text("\n".join(MALICIOUS_GITIGNORE_PATTERNS))
+
+        # Give time for fswatch to detect gitignore change (should restart watcher)
+        time.sleep(PROCESS_CLEANUP_DELAY)
+
+        # Check if watcher is still running (should be restarted)
+        new_pid = self.get_watcher_pid(child)
+
+        # Watcher should be running (potentially with new PID due to restart)
+        assert psutil.pid_exists(new_pid), "Watcher should survive malicious gitignore"
+
+        # Verify shell is still functional
+        child.sendline("echo 'shell_still_works'")
+        child.expect("shell_still_works")
+        child.expect(SHELL_PROMPT)
+
+    def test_malicious_gitignore_file_paths_security(self, tmp_path: Path) -> None:
+        """Test that malicious gitignore file paths cannot cause security issues."""
+        self.create_test_repo()
+        child = self.get_zsh_child()
+
+        # Get initial watcher PID and verify it's running
+        initial_pid = self.get_and_verify_watcher_pid(child)
+
+        # Test malicious gitignore file paths
+        malicious_paths = [
+            # Try to create gitignore files in dangerous locations
+            ".gitignore; touch /tmp/attack_file",
+            ".gitignore`touch /tmp/attack_file`",
+            ".gitignore$(touch /tmp/attack_file)",
+            ".gitignore && touch /tmp/attack_file",
+            ".gitignore || touch /tmp/attack_file",
+            ".gitignore | touch /tmp/attack_file",
+        ]
+
+        for malicious_path in malicious_paths:
+            # Try to create file with malicious name (should be handled safely)
+            try:
+                malicious_file = self.test_repo_path / malicious_path
+                malicious_file.write_text("malicious content")
+
+                # Give time for potential processing
+                time.sleep(FSWATCH_DETECTION_DELAY)
+
+                # Watcher should still be running
+                assert psutil.pid_exists(initial_pid), (
+                    f"Watcher should survive malicious path: {malicious_path}"
+                )
+
+                # Clean up
+                malicious_file.unlink()
+            except (OSError, ValueError):
+                # Some malicious paths might not be valid filenames - that's OK
+                pass
+
+        # Verify no attack files were created
+        attack_files = [
+            "attack_file",
+            "test_attack",
+            "command_substitution",
+            "backtick_substitution",
+        ]
+
+        for attack_file in attack_files:
+            attack_path = tmp_path / attack_file
+            assert not attack_path.exists(), (
+                f"Attack file should not exist: {attack_file}"
+            )
+
+    def test_gitignore_attack_files_verification(self, tmp_path: Path) -> None:
+        """Test that no attack files are created during gitignore security testing."""
+        self.create_test_repo()
+
+        # Create a malicious gitignore to trigger potential attacks
+        malicious_gitignore = self.test_repo_path / ".gitignore"
+        malicious_gitignore.write_text("\n".join(MALICIOUS_GITIGNORE_PATTERNS))
+
+        # Give time for processing
+        time.sleep(PROCESS_CLEANUP_DELAY)
+
+        # Verify no attack files were created
+        attack_files = [
+            "attack_file",
+            "test_attack",
+            "command_substitution",
+            "backtick_substitution",
+        ]
+
+        for attack_file in attack_files:
+            attack_path = tmp_path / attack_file
+            assert not attack_path.exists(), (
+                f"Attack file should not exist: {attack_file}"
+            )
+
+    def test_gitignore_shell_functionality_verification(self) -> None:
+        """Test that shell remains functional after processing malicious gitignore."""
+        self.create_test_repo()
+        child = self.get_zsh_child()
+
+        # Create a malicious gitignore to trigger potential attacks
+        malicious_gitignore = self.test_repo_path / ".gitignore"
+        malicious_gitignore.write_text("\n".join(MALICIOUS_GITIGNORE_PATTERNS))
+
+        # Give time for processing
+        time.sleep(PROCESS_CLEANUP_DELAY)
+
+        # Verify shell is still functional
+        child.sendline("echo 'shell_still_works'")
+        child.expect("shell_still_works")
+        child.expect(SHELL_PROMPT)
+
+    def test_gitignore_watcher_monitoring_verification(self) -> None:
+        """Test that watcher continues monitoring normally after security test."""
+        self.create_test_repo()
+        child = self.get_zsh_child()
+
+        # Create a malicious gitignore to trigger potential attacks
+        malicious_gitignore = self.test_repo_path / ".gitignore"
+        malicious_gitignore.write_text("\n".join(MALICIOUS_GITIGNORE_PATTERNS))
+
+        # Give time for processing
+        time.sleep(PROCESS_CLEANUP_DELAY)
+
+        # Get current watcher PID
+        watcher_pid = self.get_watcher_pid(child)
+
+        # Verify watcher is still monitoring normally
+        normal_file = self.test_repo_path / "normal_test.txt"
+        normal_file.write_text("normal content")
+
+        # Give time for fswatch to detect normal file
+        time.sleep(FSWATCH_DETECTION_DELAY)
+
+        # Watcher should still be running and monitoring
+        assert psutil.pid_exists(watcher_pid), (
+            "Watcher should continue monitoring after adversarial test"
+        )
+
+    def test_large_gitignore_file_handling(self) -> None:
+        """Test that extremely large gitignore files are handled gracefully."""
+        self.create_test_repo()
+        child = self.get_zsh_child()
+
+        # Verify initial watcher is running
+        self.get_and_verify_watcher_pid(child)
+
+        # Test with extremely large gitignore file
+        large_gitignore = self.test_repo_path / ".gitignore_large"
+        large_patterns = [f"pattern{i}" for i in range(10000)]
+        large_gitignore.write_text("\n".join(large_patterns))
+
+        # Give time for potential processing
+        time.sleep(PROCESS_CLEANUP_DELAY)
+
+        # Watcher should handle large files gracefully
+        final_pid = self.get_watcher_pid(child)
+        assert psutil.pid_exists(final_pid), (
+            "Watcher should handle large gitignore files"
+        )
+
+        # Clean up large file
+        large_gitignore.unlink()
+
+    def test_malicious_global_gitignore_security(self) -> None:
+        """Test that malicious global gitignore files are handled safely."""
+        self.create_test_repo()
+        child = self.get_zsh_child()
+
+        # Test with malicious global gitignore
+        # Create a temporary global gitignore with malicious content
+        global_gitignore = self.temp_dir / "global_gitignore"
+        global_gitignore.write_text(
+            """$(malicious_command)
+; rm -rf /
+`evil_command`
+normal_pattern.txt""",
+        )
+
+        # Set the global gitignore temporarily
+        child.sendline(f"git config --global core.excludesfile {global_gitignore}")
+        child.expect(SHELL_PROMPT)
+
+        # Restart the watcher to pick up the new global gitignore
+        child.sendline("_stop_git_watcher && _start_git_watcher")
+        child.expect(SHELL_PROMPT)
+
+        # Check that watcher is still running
+        global_test_pid = self.get_watcher_pid(child)
         assert psutil.pid_exists(global_test_pid), (
+            "Watcher should handle malicious global gitignore"
+        )
+
+        # Verify shell is still functional
+        child.sendline("echo 'global_gitignore_test_complete'")
+        child.expect("global_gitignore_test_complete")
+        child.expect(SHELL_PROMPT)
+
+        # Clean up global gitignore setting
+        child.sendline("git config --global --unset core.excludesfile")
+        child.expect(SHELL_PROMPT)
+
+    def test_malicious_git_exclude_file_security(self, tmp_path: Path) -> None:
+        """Test that malicious .git/info/exclude files are handled safely."""
+        self.create_test_repo()
+        child = self.get_zsh_child()
+
+        # Get initial watcher PID
+        initial_pid = self.get_and_verify_watcher_pid(child)
+
+        # Test with malicious .git/info/exclude file
+        exclude_file = self.test_repo_path / ".git" / "info" / "exclude"
+        exclude_file.parent.mkdir(parents=True, exist_ok=True)
+        exclude_file.write_text(
+            """# This is a malicious exclude file
+$(touch /tmp/exclude_attack)
+; cat /etc/passwd
+`whoami > /tmp/user_info`
+normal_excluded_file.txt""",
+        )
+
+        # Give time for potential processing
+        time.sleep(FSWATCH_DETECTION_DELAY)
+
+        # Watcher should still be running
+        assert psutil.pid_exists(initial_pid), (
             "Watcher should handle malicious .git/info/exclude"
         )
 
