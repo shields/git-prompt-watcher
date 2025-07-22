@@ -1,4 +1,4 @@
-FROM python:3.13-slim@sha256:6544e0e002b40ae0f59bc3618b07c1e48064c4faed3a15ae2fbd2e8f663e8283
+FROM rust:1.88.0-slim-bookworm@sha256:094f072de55b061adcd5451f265ea5b41fb484475bd6d114742d990850845284
 
 # Use Debian snapshot for reproducible builds
 RUN echo "deb http://snapshot.debian.org/archive/debian/20250718T023724Z bookworm main" > /etc/apt/sources.list \
@@ -9,6 +9,8 @@ RUN echo "deb http://snapshot.debian.org/archive/debian/20250718T023724Z bookwor
     fswatch=1.14.0+repack-13.1+b1 \
     git=1:2.39.5-0+deb12u2 \
     zsh=5.9-4+b6 \
+    pkg-config=1.8.1-1 \
+    libssl-dev=3.0.16-1~deb12u1 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -LsSf https://astral.sh/uv/0.8.0/install.sh | sh
@@ -20,8 +22,12 @@ RUN curl -sS https://starship.rs/install.sh | sh -s -- --yes --version v1.21.1
 
 RUN git config --global init.defaultBranch main
 
+# Install Rust components needed for CI
+RUN rustup component add rustfmt clippy
+
 WORKDIR /app
 
+COPY Cargo.toml Cargo.lock ./
 COPY tests/ ./tests/
 COPY git-prompt-watcher.plugin.zsh ./
 COPY justfile ./

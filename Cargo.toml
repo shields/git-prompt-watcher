@@ -1,0 +1,27 @@
+[package]
+name = "git-prompt-watcher"
+version = "0.1.0"
+edition = "2021"
+description = "A zsh plugin that watches git repositories for changes and updates shell prompts automatically"
+license = "Apache-2.0"
+repository = "https://github.com/shields/git-prompt-watcher"
+readme = "README.md"
+keywords = ["zsh", "git", "shell", "prompt", "watcher"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+tokio = { version = "1.0", features = ["full"] }
+git2 = "0.18"
+tempfile = "3.0"
+sysinfo = "0.30"
+nix = { version = "0.27", features = ["signal", "process"] }
+anyhow = "1.0"
+log = "0.4"
+env_logger = "0.10"
+regex = "1.0"
+
+[dev-dependencies]
+expectrl = "0.7"
+assert_cmd = "2.0"
+predicates = "3.0"
+serial_test = "3.0"

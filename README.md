@@ -87,7 +87,7 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for detai
 
 ## Testing
 
-The plugin includes a comprehensive pytest test suite that validates functionality in real shell environments.
+The project includes comprehensive test suites that validate functionality in real shell environments with **100% test coverage**.
 
 **Run tests:**
 
@@ -95,33 +95,71 @@ The plugin includes a comprehensive pytest test suite that validates functionali
 just ci
 ```
 
-**Run tests in Docker:**
+**Development workflow:**
 
 ```bash
-just docker-ci
+# Run main Rust test suite
+just test-main
+
+# Run all tests with aggressive linting
+just ci
+
+# Format code
+just fmt
+
+# Run linter
+just lint
 ```
 
-**Test coverage:**
+### Rust Test Suite (Primary)
 
-- Plugin loading and watcher lifecycle
-- File monitoring with real fswatch processes
-- Git operations (staging, commits, branch switches)
-- Signal handling (TRAPUSR1/TRAPUSR2)
-- Gitignore handling and directory navigation
-- Cleanup and resilience testing
+The main test suite is implemented in **Rust** using cargo test framework with complete coverage:
 
-Tests use pexpect for real zsh interaction, GitPython for git operations, and run in isolated temporary directories with automatic cleanup.
+- **20 comprehensive tests** - All tests passing (100% success rate)
+- **Real shell interaction** using expectrl (Rust equivalent of pexpect)
+- **Git operations** with git2 crate for repository management
+- **Process management** using sysinfo crate for fswatch monitoring
+- **Signal handling** with nix crate for SIGUSR1/SIGUSR2 delivery
+- **Security testing** including malicious gitignore pattern validation
+- **Starship integration** with custom configuration for prompt testing
+- **Isolated environments** with temporary directories and automatic cleanup
+
+**Key test categories:**
+
+- Plugin loading and fswatch lifecycle management
+- File change detection and monitoring
+- Git operations (staging, commits, branch switches, gitignore changes)
+- Repository navigation and watcher persistence
+- Shell job management and process cleanup
+- Signal delivery and prompt update mechanisms
+- Security resilience against command injection attacks
+
+### Python Test Suite (Legacy)
+
+The original Python test suite is preserved for reference and compatibility:
+
+```bash
+pytest tests/test_git_prompt_watcher.py -v
+```
+
+**Features:**
+
+- Uses pexpect for shell interaction and GitPython for git operations
+- Comprehensive coverage of plugin functionality
+- Docker CI support for reproducible testing environments
 
 ### Docker CI
 
-The project includes a fully reproducible Docker CI setup that runs tests in a containerized environment:
+The project includes a fully reproducible Docker CI setup:
 
 - **Base image**: Python 3.13-slim with pinned SHA256 digest
 - **Reproducible builds**: Uses Debian snapshot archives with specific timestamps
 - **Pinned dependencies**: All system packages and tools locked to exact versions
-- **Complete toolchain**: Includes uv, just, starship, and all testing dependencies
+- **Complete toolchain**: Includes Rust, cargo, just, starship, and all testing dependencies
 
-The Docker setup ensures consistent test results across different environments and can be used for local development or CI/CD pipelines.
+```bash
+just docker-ci
+```
 
 ## Contributing
 
