@@ -12,7 +12,7 @@ test:
 
 # Run tests with verbose output
 test-verbose:
-  cargo test -- --nocapture
+  cargo test -- --nocapture --test-threads=1
 
 # Run specific test
 test-one TEST:
