@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use expectrl::{Regex, Session};
 use git2::{Repository, Signature, Time};
 use nix::sys::signal::{self, Signal};
