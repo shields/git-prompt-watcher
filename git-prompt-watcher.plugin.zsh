@@ -27,7 +27,7 @@ _start_git_watcher() {
         local git_dir=$(git rev-parse --git-dir 2>/dev/null)
         if [[ -n "$git_dir" ]]; then
             # Create temporary filter file for fswatch exclude patterns
-            local filter_file=$(mktemp)
+            local filter_file=$(mktemp -t gpw-filter.XXXXXX)
 
             # Add basic exclude patterns to filter file
             {
@@ -52,7 +52,7 @@ _start_git_watcher() {
 
             # Watch git files, working directory, and gitignore files
             # Create a named pipe for communication
-            local pipe_file=$(mktemp -u)
+            local pipe_file=$(mktemp -u -t gpw-pipe.XXXXXX)
             mkfifo "$pipe_file" 2>/dev/null
 
             # Start fswatch in background and get its PID
