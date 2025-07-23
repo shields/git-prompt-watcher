@@ -208,8 +208,7 @@ impl TestContext {
     fn get_zsh_child(&self, cwd: Option<&Path>, use_starship: bool) -> Result<expectrl::Session> {
         let cwd = cwd.unwrap_or(&self.test_repo_path);
 
-        let zshrc_content = if use_starship {
-            r#"
+        let common_setup = r#"
 # Disable first-time user configuration
 setopt NO_GLOBAL_RCS
 setopt NO_RCS
@@ -217,6 +216,13 @@ setopt NO_RCS
 # Add fswatch to PATH
 export PATH="/opt/homebrew/bin:$PATH"
 
+# Skip any interactive setup
+DISABLE_AUTO_UPDATE=true
+DISABLE_UPDATE_PROMPT=true
+"#;
+
+        let specific_setup = if use_starship {
+            r#"
 # Set up Starship
 export STARSHIP_CONFIG="$GPW_PROJECT_ROOT/tests/starship.toml"
 eval "$(starship init zsh)"
@@ -228,20 +234,9 @@ source "$GPW_PLUGIN_PATH"
 export PROMPT_MARKER="PROMPT_READY"
 precmd_functions+=(echo_marker)
 echo_marker() { echo "$PROMPT_MARKER" }
-
-# Skip any interactive setup
-DISABLE_AUTO_UPDATE=true
-DISABLE_UPDATE_PROMPT=true
 "#
         } else {
             r#"
-# Disable first-time user configuration
-setopt NO_GLOBAL_RCS
-setopt NO_RCS
-
-# Add fswatch to PATH
-export PATH="/opt/homebrew/bin:$PATH"
-
 # Load the plugin
 source "$GPW_PLUGIN_PATH"
 
@@ -251,12 +246,10 @@ export PS1="test> "
 # Custom marker for prompt detection
 export PROMPT_MARKER="PROMPT_READY"
 precmd() { echo "$PROMPT_MARKER" }
-
-# Skip any interactive setup
-DISABLE_AUTO_UPDATE=true
-DISABLE_UPDATE_PROMPT=true
 "#
         };
+
+        let zshrc_content = format!("{common_setup}{specific_setup}");
         let zshrc_path = self.temp_dir.path().join(".zshrc");
         fs::write(&zshrc_path, zshrc_content).context("Failed to write .zshrc")?;
 
@@ -342,16 +335,11 @@ fn get_watcher_pid(session: &mut expectrl::Session) -> Result<u32> {
     let full_match = String::from_utf8_lossy(matches[0]);
     let pid_str = full_match
         .strip_prefix("WATCHERPID:")
-        .unwrap()
+        .context("Failed to strip prefix from PID match")?
         .strip_suffix(":")
-        .unwrap();
+        .context("Failed to strip suffix from PID match")?;
     session.expect(Regex(SHELL_PROMPT))?;
     Ok(pid_str.parse()?)
-}
-
-/// Helper function to verify fswatch is running
-fn verify_fswatch_running(pid: u32) -> bool {
-    is_fswatch_running(pid)
 }
 
 /// Sync version of `wait_for_process_termination` for backwards compatibility
@@ -439,7 +427,7 @@ async fn test_watcher_starts_in_git_repo() -> Result<()> {
 
     // Verify the PID is actually a running fswatch process
     assert!(
-        verify_fswatch_running(watcher_pid),
+        is_fswatch_running(watcher_pid),
         "Watcher PID is set but fswatch is not running"
     );
 
@@ -484,11 +472,11 @@ async fn test_file_change_triggers_fswatch() -> Result<()> {
     fs::write(&new_file, "test content")?;
 
     // Give fswatch time to detect the change
-    thread::sleep(FSWATCH_DETECTION_DELAY);
+    sleep(FSWATCH_DETECTION_DELAY).await;
 
     // Watcher should still be running
     assert!(
-        verify_fswatch_running(watcher_pid),
+        is_fswatch_running(watcher_pid),
         "Watcher should still be running after file change"
     );
 
@@ -583,7 +571,7 @@ async fn test_malicious_gitignore_patterns_security() -> Result<()> {
     fs::write(&malicious_gitignore, all_patterns.join("\n"))?;
 
     // Give time for fswatch to detect gitignore change (should restart watcher)
-    thread::sleep(PROCESS_CLEANUP_DELAY);
+    sleep(PROCESS_CLEANUP_DELAY).await;
 
     // Check if watcher is still running (potentially with new PID due to restart)
     let new_pid = get_watcher_pid(&mut child)?;
@@ -694,7 +682,7 @@ async fn test_watcher_really_stops_when_leaving_repo() -> Result<()> {
     child.expect(Regex("test>"))?;
 
     // Give time for the chpwd hook to trigger
-    thread::sleep(PROCESS_CLEANUP_DELAY);
+    sleep(PROCESS_CLEANUP_DELAY).await;
 
     // Check that the PID variable is cleared
     child.send_line("echo \"PID after leaving: '$_git_prompt_watcher_pid'\"")?;
@@ -721,17 +709,14 @@ async fn test_gitignore_change_handling() -> Result<()> {
     let initial_pid = get_watcher_pid(&mut child)?;
 
     // Verify fswatch is running
-    assert!(
-        verify_fswatch_running(initial_pid),
-        "fswatch should be running"
-    );
+    assert!(is_fswatch_running(initial_pid), "fswatch should be running");
 
     // Modify .gitignore directly
     let gitignore = ctx.test_repo_path.join(".gitignore");
     fs::write(&gitignore, "*.log\n")?;
 
     // Give time for potential restart
-    thread::sleep(Duration::from_millis(200));
+    sleep(Duration::from_millis(200)).await;
 
     // Check if watcher is still running (same or new PID)
     let current_pid = get_watcher_pid(&mut child)?;
@@ -763,10 +748,7 @@ async fn test_branch_switching() -> Result<()> {
     let watcher_pid = get_watcher_pid(&mut child)?;
 
     // Verify fswatch is running
-    assert!(
-        verify_fswatch_running(watcher_pid),
-        "fswatch should be running"
-    );
+    assert!(is_fswatch_running(watcher_pid), "fswatch should be running");
 
     // Create commit on new branch
     ctx.create_and_commit_file(&repo, "branch_file.txt", "branch content", "Branch commit")?;
@@ -775,11 +757,11 @@ async fn test_branch_switching() -> Result<()> {
     repo.set_head("refs/heads/main")?;
     repo.checkout_head(None)?;
 
-    thread::sleep(FSWATCH_DETECTION_DELAY);
+    sleep(FSWATCH_DETECTION_DELAY).await;
 
     // Watcher should still be running
     assert!(
-        verify_fswatch_running(watcher_pid),
+        is_fswatch_running(watcher_pid),
         "Watcher should handle branch switching"
     );
 
@@ -797,10 +779,7 @@ async fn test_multiple_rapid_file_changes() -> Result<()> {
     let watcher_pid = get_watcher_pid(&mut child)?;
 
     // Verify fswatch is running
-    assert!(
-        verify_fswatch_running(watcher_pid),
-        "fswatch should be running"
-    );
+    assert!(is_fswatch_running(watcher_pid), "fswatch should be running");
 
     // Create multiple files rapidly
     let mut file_paths = Vec::new();
@@ -817,11 +796,11 @@ async fn test_multiple_rapid_file_changes() -> Result<()> {
     }
     index.write()?;
 
-    thread::sleep(FSWATCH_DETECTION_DELAY);
+    sleep(FSWATCH_DETECTION_DELAY).await;
 
     // Watcher should survive rapid changes
     assert!(
-        verify_fswatch_running(watcher_pid),
+        is_fswatch_running(watcher_pid),
         "Watcher should handle rapid file changes"
     );
 
@@ -865,7 +844,7 @@ async fn test_signal_delivery_to_shell() -> Result<()> {
     signal::kill(Pid::from_raw(shell_pid), Signal::SIGUSR1).context("Failed to send signal")?;
 
     // Give time for signal processing
-    thread::sleep(Duration::from_millis(200));
+    sleep(Duration::from_millis(200)).await;
 
     // Check if signal was received by looking for our marker
     child.expect(Regex("SIGNAL_CAUGHT"))?;
@@ -896,7 +875,7 @@ async fn test_prompt_updates_with_starship() -> Result<()> {
     fs::write(&untracked_file, "untracked content")?;
 
     // Give fswatch time to detect the change and trigger prompt update
-    thread::sleep(FSWATCH_DETECTION_DELAY);
+    sleep(FSWATCH_DETECTION_DELAY).await;
 
     // Send a command to trigger a new prompt with the git status
     child.send_line("echo 'checking prompt'")?;
@@ -923,7 +902,7 @@ async fn test_prompt_updates_with_starship() -> Result<()> {
     child.send_line("git add untracked.txt")?;
 
     // Give time for the staging to complete and fswatch to detect
-    thread::sleep(FSWATCH_DETECTION_DELAY);
+    sleep(FSWATCH_DETECTION_DELAY).await;
 
     child.send_line("echo 'checking staged prompt'")?;
     child.expect(Regex("checking staged prompt"))?;
@@ -967,7 +946,7 @@ async fn test_prompt_updates_on_branch_switch_with_starship() -> Result<()> {
     child.expect(Regex("Switched to a new branch"))?;
 
     // Give fswatch time to detect the branch change
-    thread::sleep(FSWATCH_DETECTION_DELAY);
+    sleep(FSWATCH_DETECTION_DELAY).await;
 
     // Check prompt updated to new branch name
     child.send_line("echo 'checking feature branch'")?;
@@ -980,7 +959,7 @@ async fn test_prompt_updates_on_branch_switch_with_starship() -> Result<()> {
     child.expect(Regex("Switched to branch"))?;
 
     // Give fswatch time to detect the branch change
-    thread::sleep(FSWATCH_DETECTION_DELAY);
+    sleep(FSWATCH_DETECTION_DELAY).await;
 
     // Check prompt updated back to main
     child.send_line("echo 'checking main branch again'")?;
@@ -1005,7 +984,7 @@ async fn test_watcher_restarts_between_different_repos() -> Result<()> {
 
     // Verify initial watcher is running
     assert!(
-        verify_fswatch_running(initial_pid),
+        is_fswatch_running(initial_pid),
         "Initial watcher should be running"
     );
 
@@ -1055,14 +1034,14 @@ async fn test_watcher_restarts_between_different_repos() -> Result<()> {
     child.expect(Regex("test>"))?;
 
     // Give time for new watcher to start
-    thread::sleep(Duration::from_millis(200));
+    sleep(Duration::from_millis(200)).await;
 
     // Get new watcher PID
     let new_pid = get_watcher_pid(&mut child)?;
 
     // Verify that the new watcher is running
     assert!(
-        verify_fswatch_running(new_pid),
+        is_fswatch_running(new_pid),
         "New watcher should be running in second repository"
     );
 
@@ -1071,11 +1050,11 @@ async fn test_watcher_restarts_between_different_repos() -> Result<()> {
     fs::write(&test_file, "test content")?;
 
     // Give time for fswatch to detect the change
-    thread::sleep(FSWATCH_DETECTION_DELAY);
+    sleep(FSWATCH_DETECTION_DELAY).await;
 
     // The watcher should still be alive and monitoring
     assert!(
-        verify_fswatch_running(new_pid),
+        is_fswatch_running(new_pid),
         "Watcher should handle file changes in second repository"
     );
 
@@ -1326,7 +1305,7 @@ async fn test_no_attack_files_created_during_security_test() -> Result<()> {
     fs::write(&malicious_gitignore, all_patterns.join("\n"))?;
 
     // Give time for processing
-    thread::sleep(Duration::from_millis(200));
+    sleep(Duration::from_millis(200)).await;
 
     // Verify no attack files were created in common attack locations
     let attack_files = [
@@ -1381,7 +1360,7 @@ async fn test_command_injection_via_gitignore_patterns() -> Result<()> {
     // Get initial watcher PID and verify it's running
     let initial_pid = get_watcher_pid(&mut session)?;
     assert!(
-        verify_fswatch_running(initial_pid),
+        is_fswatch_running(initial_pid),
         "Initial watcher should be running"
     );
 
@@ -1409,7 +1388,7 @@ async fn test_command_injection_via_gitignore_patterns() -> Result<()> {
 
     // Watcher should be running (potentially with new PID due to restart)
     assert!(
-        verify_fswatch_running(new_pid),
+        is_fswatch_running(new_pid),
         "Watcher should survive malicious gitignore"
     );
 
