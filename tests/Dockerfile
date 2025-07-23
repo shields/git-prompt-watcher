@@ -1,4 +1,4 @@
-FROM rust:1.88.0-slim-bookworm@sha256:094f072de55b061adcd5451f265ea5b41fb484475bd6d114742d990850845284
+FROM rust:1.88.0-slim-bookworm@sha256:4679aa0a88781517cbc33adeea4057d8a740eb4a07c43f3aaa63c26e35e9a65c
 
 # Use Debian snapshot for reproducible builds
 RUN echo "deb http://snapshot.debian.org/archive/debian/20250718T023724Z bookworm main" > /etc/apt/sources.list \
