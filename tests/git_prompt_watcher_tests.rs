@@ -78,6 +78,19 @@ const MALICIOUS_GITIGNORE_PATTERNS: &[&str] = &[
     "file.with.dots",
     "file/with/slashes",
     "file\\\\with\\\\double\\\\backslashes",
+    // Unicode and special encodings
+    "file\x00with\x00null",                               // Null bytes
+    "file\x1bwith\x1bescape",                             // Escape sequences
+    "file\x7fwith\x7fhigh",                               // High ASCII bytes
+    "file\u{2028}with\u{2028}line\u{2028}separator",      // Unicode line separator
+    "file\u{2029}with\u{2029}paragraph\u{2029}separator", // Unicode paragraph separator
+    // Control characters
+    "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f",
+    "\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b\x1c\x1d\x1e\x1f",
+    // Format string attacks
+    "%s%s%s%s%s%s%s%s%s%s",
+    "%x%x%x%x%x%x%x%x%x%x",
+    "%n%n%n%n%n%n%n%n%n%n",
     // Path traversal attempts
     "../../../etc/passwd",
     "..\\..\\..\\windows\\system32\\config\\sam",
@@ -86,7 +99,29 @@ const MALICIOUS_GITIGNORE_PATTERNS: &[&str] = &[
     "/dev/zero",
     "/dev/random",
     "/proc/self/exe",
+    // Glob patterns that might cause issues
+    "**/**/***/**",
+    // Regular expression special characters
+    "file.*with.*regex",
+    "file.+with.+regex",
+    "file.{1,100}with.{1,100}regex",
+    "file^with^caret",
+    "file$with$dollar$end",
 ];
+
+// Additional patterns that require dynamic allocation
+fn get_large_malicious_patterns() -> Vec<String> {
+    vec![
+        "a".repeat(1000),
+        "b".repeat(10000),
+        "*".repeat(100),
+        "?".repeat(100),
+        "[".repeat(100),
+        "]".repeat(100),
+        "{".repeat(100),
+        "}".repeat(100),
+    ]
+}
 
 struct TestContext {
     temp_dir: TempDir,
@@ -540,10 +575,12 @@ async fn test_malicious_gitignore_patterns_security() -> Result<()> {
 
     // Write malicious gitignore with command injection patterns
     let malicious_gitignore = ctx.test_repo_path.join(".gitignore");
-    fs::write(
-        &malicious_gitignore,
-        MALICIOUS_GITIGNORE_PATTERNS.join("\n"),
-    )?;
+    let mut all_patterns: Vec<String> = MALICIOUS_GITIGNORE_PATTERNS
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect();
+    all_patterns.extend(get_large_malicious_patterns());
+    fs::write(&malicious_gitignore, all_patterns.join("\n"))?;
 
     // Give time for fswatch to detect gitignore change (should restart watcher)
     thread::sleep(PROCESS_CLEANUP_DELAY);
@@ -1274,6 +1311,62 @@ async fn test_fswatch_jobs_not_cluttering_output() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_no_attack_files_created_during_security_test() -> Result<()> {
+    let ctx = TestContext::new()?;
+    let _repo = ctx.create_test_repo()?;
+
+    // Create a malicious gitignore to trigger potential attacks
+    let malicious_gitignore = ctx.test_repo_path.join(".gitignore");
+    let mut all_patterns: Vec<String> = MALICIOUS_GITIGNORE_PATTERNS
+        .iter()
+        .map(|s| (*s).to_string())
+        .collect();
+    all_patterns.extend(get_large_malicious_patterns());
+
+    fs::write(&malicious_gitignore, all_patterns.join("\n"))?;
+
+    // Give time for processing
+    thread::sleep(Duration::from_millis(200));
+
+    // Verify no attack files were created in common attack locations
+    let attack_files = [
+        "/tmp/attack_file",
+        "/tmp/test_attack",
+        "/tmp/command_substitution",
+        "/tmp/backtick_substitution",
+        "/tmp/exclude_attack",
+        "/tmp/user_info",
+        "/tmp/global_attack",
+    ];
+
+    for attack_file in &attack_files {
+        let attack_path = Path::new(attack_file);
+        assert!(
+            !attack_path.exists(),
+            "Attack file should not exist: {attack_file}"
+        );
+    }
+
+    // Also check in the temp directory
+    let temp_attack_files = [
+        "attack_file",
+        "test_attack",
+        "command_substitution",
+        "backtick_substitution",
+    ];
+
+    for attack_file in &temp_attack_files {
+        let attack_path = ctx.temp_dir.path().join(attack_file);
+        assert!(
+            !attack_path.exists(),
+            "Attack file should not exist in temp dir: {attack_file}"
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_command_injection_via_gitignore_patterns() -> Result<()> {
     let _ = env_logger::builder()
         .filter_level(log::LevelFilter::Debug)
@@ -1324,6 +1417,44 @@ async fn test_command_injection_via_gitignore_patterns() -> Result<()> {
     session.send_line("echo 'shell_still_works'")?;
     session.expect(Regex("shell_still_works"))?;
     session.expect(Regex("test>"))?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_large_gitignore_security() -> Result<()> {
+    let ctx = TestContext::new()?;
+    let _repo = ctx.create_test_repo()?;
+    let mut child = ctx.get_zsh_child(None, false)?;
+
+    let _initial_pid = wait_for_fswatch_to_start(&mut child).await?;
+
+    // Create an extremely large gitignore file with malicious patterns
+    let large_gitignore = ctx.test_repo_path.join(".gitignore");
+    let mut large_patterns: Vec<String> = (0..10000).map(|i| format!("pattern{i}")).collect();
+    large_patterns.extend(get_large_malicious_patterns());
+
+    fs::write(&large_gitignore, large_patterns.join("\n"))?;
+
+    // Give time for fswatch to detect the change and restart
+    sleep(Duration::from_millis(500)).await;
+
+    // The watcher should have restarted and still be running
+    let new_pid = get_watcher_pid(&mut child)?;
+    assert!(
+        is_fswatch_running(new_pid),
+        "Watcher should be running after large gitignore change"
+    );
+
+    // Verify no attack files were created
+    let attack_files = ["/tmp/test_attack", "/tmp/global_attack"];
+    for attack_file in &attack_files {
+        let attack_path = Path::new(attack_file);
+        assert!(
+            !attack_path.exists(),
+            "Attack file should not exist: {attack_file}"
+        );
+    }
 
     Ok(())
 }
