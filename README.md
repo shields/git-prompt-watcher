@@ -1,166 +1,50 @@
 # Git Prompt Watcher
 
-An oh-my-zsh plugin that automatically updates your prompt when git status changes, using fswatch to monitor repository files in real-time.
+[![CI](https://github.com/shields/git-prompt-watcher/actions/workflows/test.yaml/badge.svg)](https://github.com/shields/git-prompt-watcher/actions/workflows/test.yaml)
+
+An oh-my-zsh plugin that automatically updates your prompt when git status changes, using `fswatch` to monitor repository files in real-time.
+
+It solves the problem of slow shell prompts in large Git repositories by avoiding shell-based file system scanning. Instead, it uses a dedicated, high-performance file system watcher (`fswatch`) to instantly detect changes and refresh the prompt on demand.
 
 ## Features
 
-- **Real-time prompt updates** when git status changes (staging, commits, branch switches, new files)
-- **Respects gitignore** - only watches files that git actually tracks or considers untracked
-- **Efficient monitoring** - watches git metadata and working directory while excluding ignored files
-- **Gitignore-aware** - automatically restarts when `.gitignore` files change
-- **Repository detection** - only runs when inside git repositories
-- **Clean job control** - doesn't clutter `jobs` output
+- **Real-time Prompt Updates**: Your prompt refreshes instantly when you change branches, commit, or modify files.
+- **Efficient**: Uses `fswatch` for low-latency monitoring, avoiding slow shell commands in your prompt.
+- **Git-Aware**: Respects your `.gitignore` files and automatically re-indexes when they change.
+- **Stable**: Won't clutter your `jobs` output or leave orphaned processes behind.
+- **Heavily Tested**: A comprehensive test suite validates functionality in a real shell environment to guarantee reliability.
 
 ## Requirements
 
-- **fswatch** - File system monitoring utility
-- **oh-my-zsh** - Zsh framework
-- **Starship** or compatible prompt that responds to `zle reset-prompt`
-- **macOS/Linux** - Uses POSIX signals for prompt updates
-
-Install fswatch via Homebrew:
-
-```bash
-brew install fswatch
-```
+- **oh-my-zsh**
+- **fswatch** (e.g., `brew install fswatch`)
+- A prompt that supports `zle reset-prompt` (like Starship, Powerlevel10k, etc.)
+- macOS or Linux
 
 ## Installation
 
-### Manual Installation
+1.  **Clone the repository:**
 
-1. Clone this repository to your oh-my-zsh custom plugins directory:
+    ```bash
+    git clone https://github.com/shields/git-prompt-watcher.git ~/.oh-my-zsh/custom/plugins/git-prompt-watcher
+    ```
 
-   ```bash
-   git clone https://github.com/shields/git-prompt-watcher.git ~/.oh-my-zsh/custom/plugins/git-prompt-watcher
-   ```
+2.  **Add the plugin to your `.zshrc`:**
 
-2. Add the plugin to your `.zshrc`:
+    ```zsh
+    plugins=(... git-prompt-watcher)
+    ```
 
-   ```bash
-   plugins=(... git-prompt-watcher)
-   ```
+3.  **Restart your shell.**
 
-3. Restart your shell or source your `.zshrc`:
-   ```bash
-   source ~/.zshrc
-   ```
+## How It Works
 
-## How it Works
+The plugin runs `fswatch` in the background to monitor key Git files (`.git/index`, `.git/HEAD`, `.git/refs`), your `.gitignore` files, and the working directory. When a change is detected, it sends a `SIGUSR1` signal to the parent Zsh process, which triggers `zle reset-prompt` to redraw your prompt.
 
-The plugin monitors these git-related files and directories:
+## Contributing
 
-- `.git/index` (staging area changes)
-- `.git/HEAD` (branch switches, commits)
-- `.git/refs` (branch and tag changes)
-- `.git/info/exclude` (repository-specific ignore rules)
-- All `.gitignore` files in the repository
-- Working directory (for new untracked files)
-
-When changes are detected, it sends `SIGUSR1` to the shell to trigger a prompt redraw via `zle reset-prompt`.
-
-When gitignore files change, it restarts the watcher with updated ignore patterns.
-
-## Configuration
-
-The plugin works out of the box with Starship and other prompts that respond to `zle reset-prompt`. No additional configuration is required.
-
-## Troubleshooting
-
-### Prompt not updating
-
-- Ensure fswatch is installed and in your PATH
-- Check that your prompt supports `zle reset-prompt`
-- Verify you're inside a git repository
-
-### High CPU usage
-
-- The plugin excludes `.git/objects/` and `.git/logs/` to avoid monitoring frequently changing files
-- Large repositories with many files may still cause some overhead
-
-### Permission errors
-
-- Ensure fswatch has permission to monitor your repository directories
+Contributions are welcome! The plugin is rigorously tested using a custom-built test suite in Rust. For more details on testing and development, please see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
-
-## Testing
-
-The project includes comprehensive test suites that validate functionality in real shell environments with **100% test coverage**.
-
-**Run tests:**
-
-```bash
-just ci
-```
-
-**Development workflow:**
-
-```bash
-# Run main Rust test suite
-just test-main
-
-# Run all tests with aggressive linting
-just ci
-
-# Format code
-just fmt
-
-# Run linter
-just lint
-```
-
-### Rust Test Suite (Primary)
-
-The main test suite is implemented in **Rust** using cargo test framework with complete coverage:
-
-- **20 comprehensive tests** - All tests passing (100% success rate)
-- **Real shell interaction** using expectrl (Rust equivalent of pexpect)
-- **Git operations** with git2 crate for repository management
-- **Process management** using sysinfo crate for fswatch monitoring
-- **Signal handling** with nix crate for SIGUSR1/SIGUSR2 delivery
-- **Security testing** including malicious gitignore pattern validation
-- **Starship integration** with custom configuration for prompt testing
-- **Isolated environments** with temporary directories and automatic cleanup
-
-**Key test categories:**
-
-- Plugin loading and fswatch lifecycle management
-- File change detection and monitoring
-- Git operations (staging, commits, branch switches, gitignore changes)
-- Repository navigation and watcher persistence
-- Shell job management and process cleanup
-- Signal delivery and prompt update mechanisms
-- Security resilience against command injection attacks
-
-### Python Test Suite (Legacy)
-
-The original Python test suite is preserved for reference and compatibility:
-
-```bash
-pytest tests/test_git_prompt_watcher.py -v
-```
-
-**Features:**
-
-- Uses pexpect for shell interaction and GitPython for git operations
-- Comprehensive coverage of plugin functionality
-- Docker CI support for reproducible testing environments
-
-### Docker CI
-
-The project includes a fully reproducible Docker CI setup:
-
-- **Base image**: Python 3.13-slim with pinned SHA256 digest
-- **Reproducible builds**: Uses Debian snapshot archives with specific timestamps
-- **Pinned dependencies**: All system packages and tools locked to exact versions
-- **Complete toolchain**: Includes Rust, cargo, just, starship, and all testing dependencies
-
-```bash
-just docker-ci
-```
-
-## Contributing
-
-Contributions are welcome! Please ensure tests pass before submitting pull requests.
