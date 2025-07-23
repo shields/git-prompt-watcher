@@ -1,15 +1,6 @@
 # Minimal starship config for testing git status in prompt
-# No colors for easier test matching
-format = "$directory$git_branch$git_status$character"
-
-[directory]
-format = "$path "
-truncate_to_repo = false
-truncation_length = 0
-
-[git_branch]
-format = "on $branch "
-symbol = ""
+# Uses simple prompt format that matches test expectations
+format = "$git_branch$git_status$character"
 
 [git_status]
 format = '($all_status$ahead_behind )'
@@ -24,6 +15,11 @@ staged = "+"
 renamed = "»"
 deleted = "✘"
 
+[git_branch]
+format = "on [$symbol$branch]($style) "
+symbol = ""
+style = ""
+
 [character]
-success_symbol = "❯"
-error_symbol = "❯"
+success_symbol = "test> "
+error_symbol = "test> "

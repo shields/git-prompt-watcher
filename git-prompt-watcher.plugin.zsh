@@ -102,7 +102,10 @@ _start_git_watcher() {
 
 _stop_git_watcher() {
     if [[ -n "$_git_prompt_watcher_pid" ]]; then
+        # Try SIGTERM first, then SIGKILL if necessary
         kill "$_git_prompt_watcher_pid" 2>/dev/null
+        sleep 0.1
+        kill -9 "$_git_prompt_watcher_pid" 2>/dev/null
         # Note: pipe cleanup is handled by the reader process
     fi
     _git_prompt_watcher_pid=""
@@ -157,5 +160,18 @@ chpwd_functions+=(_check_git_repo_change)
 # Initialize on shell startup
 _check_git_repo_change
 
-# Clean up watcher on shell exit
+# Clean up watcher on shell exit and signals
 zshexit_functions+=(_stop_git_watcher)
+
+# Also handle common termination signals
+TRAPTERM() {
+    _stop_git_watcher
+}
+
+TRAPINT() {
+    _stop_git_watcher
+}
+
+TRAPHUP() {
+    _stop_git_watcher
+}

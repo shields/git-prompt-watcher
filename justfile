@@ -2,42 +2,68 @@
 default:
   just --list
 
-# Install dependencies
+# Install Rust dependencies and build
 sync:
-  cd tests && uv sync --extra dev
+  cargo fetch
 
-# Run tests
-test: sync
-  cd tests && uv run --no-project pytest -n auto
+# Run Rust tests
+test:
+  cargo test
 
-# Run tests with verbose output
-test-verbose: sync
-  cd tests && uv run --no-project pytest -n auto -v
+# Run tests with verbose output (parallel)
+test-verbose:
+  cargo test -- --nocapture
+
+# Run specific test
+test-one TEST:
+  cargo test {{TEST}}
 
 # Clean up build artifacts
 clean:
-  rm -rf .pytest_cache/
-  rm -rf __pycache__/
-  rm -rf .venv/
-  find . -name "*.pyc" -delete
-  find . -name "*.pyo" -delete
+  cargo clean
 
-# Format code with ruff
-fmt: sync
-  cd tests && uv run --no-project ruff format .
+# Format Rust code
+fmt:
+  cargo fmt
 
-# Lint code with ruff
-lint: sync
-  cd tests && uv run --no-project ruff format --check .
-  cd tests && uv run --no-project ruff check .
+# Lint Rust code with aggressive settings
+lint:
+  cargo fmt --check
+  cargo clippy --all-targets --all-features -- -D warnings -D clippy::all -D clippy::pedantic -D clippy::nursery -D clippy::cargo
 
 # Fix linting issues automatically
-fix: sync fmt
-  cd tests && uv run --no-project ruff check . --fix
+fix:
+  cargo fmt
+  cargo clippy --fix --allow-dirty --allow-staged --all-targets --all-features
 
-# Check types with ruff
-check: sync
-  cd tests && uv run --no-project ruff check .
+# Lint with even more aggressive settings (may be too strict for some projects)
+lint-aggressive:
+  cargo fmt --check
+  cargo clippy --all-targets --all-features -- \
+    -D warnings \
+    -D clippy::all \
+    -D clippy::pedantic \
+    -D clippy::nursery \
+    -D clippy::cargo \
+    -D clippy::restriction \
+    -W clippy::missing_docs_in_private_items \
+    -W clippy::unwrap_used \
+    -W clippy::expect_used \
+    -W clippy::panic \
+    -W clippy::unimplemented \
+    -W clippy::todo
+
+# Check Rust code
+check:
+  cargo check
+
+# Build the project
+build:
+  cargo build
+
+# Build in release mode
+build-release:
+  cargo build --release
 
 # Run all checks
 ci: lint check test-verbose

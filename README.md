@@ -1,128 +1,50 @@
 # Git Prompt Watcher
 
-An oh-my-zsh plugin that automatically updates your prompt when git status changes, using fswatch to monitor repository files in real-time.
+[![CI](https://github.com/shields/git-prompt-watcher/actions/workflows/test.yaml/badge.svg)](https://github.com/shields/git-prompt-watcher/actions/workflows/test.yaml)
+
+An oh-my-zsh plugin that automatically updates your prompt when git status changes, using `fswatch` to monitor repository files in real-time.
+
+It solves the problem of slow shell prompts in large Git repositories by avoiding shell-based file system scanning. Instead, it uses a dedicated, high-performance file system watcher (`fswatch`) to instantly detect changes and refresh the prompt on demand.
 
 ## Features
 
-- **Real-time prompt updates** when git status changes (staging, commits, branch switches, new files)
-- **Respects gitignore** - only watches files that git actually tracks or considers untracked
-- **Efficient monitoring** - watches git metadata and working directory while excluding ignored files
-- **Gitignore-aware** - automatically restarts when `.gitignore` files change
-- **Repository detection** - only runs when inside git repositories
-- **Clean job control** - doesn't clutter `jobs` output
+- **Real-time Prompt Updates**: Your prompt refreshes instantly when you change branches, commit, or modify files.
+- **Efficient**: Uses `fswatch` for low-latency monitoring, avoiding slow shell commands in your prompt.
+- **Git-Aware**: Respects your `.gitignore` files and automatically re-indexes when they change.
+- **Stable**: Won't clutter your `jobs` output or leave orphaned processes behind.
+- **Heavily Tested**: A comprehensive test suite validates functionality in a real shell environment to guarantee reliability.
 
 ## Requirements
 
-- **fswatch** - File system monitoring utility
-- **oh-my-zsh** - Zsh framework
-- **Starship** or compatible prompt that responds to `zle reset-prompt`
-- **macOS/Linux** - Uses POSIX signals for prompt updates
-
-Install fswatch via Homebrew:
-
-```bash
-brew install fswatch
-```
+- **oh-my-zsh**
+- **fswatch** (e.g., `brew install fswatch`)
+- A prompt that supports `zle reset-prompt` (like Starship, Powerlevel10k, etc.)
+- macOS or Linux
 
 ## Installation
 
-### Manual Installation
+1.  **Clone the repository:**
 
-1. Clone this repository to your oh-my-zsh custom plugins directory:
+    ```bash
+    git clone https://github.com/shields/git-prompt-watcher.git ~/.oh-my-zsh/custom/plugins/git-prompt-watcher
+    ```
 
-   ```bash
-   git clone https://github.com/shields/git-prompt-watcher.git ~/.oh-my-zsh/custom/plugins/git-prompt-watcher
-   ```
+2.  **Add the plugin to your `.zshrc`:**
 
-2. Add the plugin to your `.zshrc`:
+    ```zsh
+    plugins=(... git-prompt-watcher)
+    ```
 
-   ```bash
-   plugins=(... git-prompt-watcher)
-   ```
+3.  **Restart your shell.**
 
-3. Restart your shell or source your `.zshrc`:
-   ```bash
-   source ~/.zshrc
-   ```
+## How It Works
 
-## How it Works
+The plugin runs `fswatch` in the background to monitor key Git files (`.git/index`, `.git/HEAD`, `.git/refs`), your `.gitignore` files, and the working directory. When a change is detected, it sends a `SIGUSR1` signal to the parent Zsh process, which triggers `zle reset-prompt` to redraw your prompt.
 
-The plugin monitors these git-related files and directories:
+## Contributing
 
-- `.git/index` (staging area changes)
-- `.git/HEAD` (branch switches, commits)
-- `.git/refs` (branch and tag changes)
-- `.git/info/exclude` (repository-specific ignore rules)
-- All `.gitignore` files in the repository
-- Working directory (for new untracked files)
-
-When changes are detected, it sends `SIGUSR1` to the shell to trigger a prompt redraw via `zle reset-prompt`.
-
-When gitignore files change, it restarts the watcher with updated ignore patterns.
-
-## Configuration
-
-The plugin works out of the box with Starship and other prompts that respond to `zle reset-prompt`. No additional configuration is required.
-
-## Troubleshooting
-
-### Prompt not updating
-
-- Ensure fswatch is installed and in your PATH
-- Check that your prompt supports `zle reset-prompt`
-- Verify you're inside a git repository
-
-### High CPU usage
-
-- The plugin excludes `.git/objects/` and `.git/logs/` to avoid monitoring frequently changing files
-- Large repositories with many files may still cause some overhead
-
-### Permission errors
-
-- Ensure fswatch has permission to monitor your repository directories
+Contributions are welcome! The plugin is rigorously tested using a custom-built test suite in Rust. For more details on testing and development, please see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
-
-## Testing
-
-The plugin includes a comprehensive pytest test suite that validates functionality in real shell environments.
-
-**Run tests:**
-
-```bash
-just ci
-```
-
-**Run tests in Docker:**
-
-```bash
-just docker-ci
-```
-
-**Test coverage:**
-
-- Plugin loading and watcher lifecycle
-- File monitoring with real fswatch processes
-- Git operations (staging, commits, branch switches)
-- Signal handling (TRAPUSR1/TRAPUSR2)
-- Gitignore handling and directory navigation
-- Cleanup and resilience testing
-
-Tests use pexpect for real zsh interaction, GitPython for git operations, and run in isolated temporary directories with automatic cleanup.
-
-### Docker CI
-
-The project includes a fully reproducible Docker CI setup that runs tests in a containerized environment:
-
-- **Base image**: Python 3.13-slim with pinned SHA256 digest
-- **Reproducible builds**: Uses Debian snapshot archives with specific timestamps
-- **Pinned dependencies**: All system packages and tools locked to exact versions
-- **Complete toolchain**: Includes uv, just, starship, and all testing dependencies
-
-The Docker setup ensures consistent test results across different environments and can be used for local development or CI/CD pipelines.
-
-## Contributing
-
-Contributions are welcome! Please ensure tests pass before submitting pull requests.
