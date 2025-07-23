@@ -18,22 +18,9 @@ test-verbose:
 test-one TEST:
   cargo test {{TEST}}
 
-# Run only the simple basic tests
-test-simple:
-  cargo test --test simple_test
-
-# Run the main test suite (may have some unimplemented parts)
-test-main:
-  cargo test --test git_prompt_watcher_tests
-
 # Clean up build artifacts
 clean:
   cargo clean
-  rm -rf .pytest_cache/
-  rm -rf __pycache__/
-  rm -rf .venv/
-  find . -name "*.pyc" -delete
-  find . -name "*.pyo" -delete
 
 # Format Rust code
 fmt:
@@ -78,26 +65,10 @@ build:
 build-release:
   cargo build --release
 
-# Run all checks (Rust version)
+# Run all checks
 ci: lint check test-verbose
 
-# Legacy Python test support (if Python tests directory exists)
-test-python:
-  #!/usr/bin/env bash
-  if [ -d "tests" ] && [ -f "tests/pyproject.toml" ]; then
-    cd tests && uv sync --extra dev
-    cd tests && uv run --no-project pytest -n auto -v
-  else
-    echo "No Python tests found"
-  fi
-
-# Run CI checks in Docker container (legacy)
+# Run CI checks in Docker container
 docker-ci:
-  #!/usr/bin/env bash
-  if [ -f "tests/Dockerfile" ]; then
-    docker build -t git-prompt-watcher-test -f tests/Dockerfile .
-    docker run --rm git-prompt-watcher-test
-  else
-    echo "No Dockerfile found, running Rust tests instead"
-    just ci
-  fi
+  docker build -t git-prompt-watcher-test -f tests/Dockerfile .
+  docker run --rm git-prompt-watcher-test

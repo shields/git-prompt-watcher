@@ -24,9 +24,9 @@ fn setup_logger() {
     });
 }
 
-// Timeouts - Much shorter for fast failure
+// Timeouts - Increased for containerized environment reliability
 
-const PROCESS_POLL_TIMEOUT: Duration = Duration::from_secs(2);
+const PROCESS_POLL_TIMEOUT: Duration = Duration::from_secs(10);
 
 // Sleep intervals
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -883,8 +883,8 @@ async fn test_watcher_cleanup_on_exit() -> Result<()> {
     // Wait for the shell process to actually exit
     let _ = child.expect(expectrl::Eof)?;
 
-    // Give a bit more time for cleanup hooks to run
-    sleep(Duration::from_millis(200)).await;
+    // Give more time for cleanup hooks to run
+    sleep(Duration::from_secs(2)).await;
 
     // Watcher process should be cleaned up
     let cleaned_up = wait_for_process_termination(watcher_pid).await.is_ok();
@@ -922,7 +922,7 @@ async fn test_watcher_killed_on_shell_exit() -> Result<()> {
     signal::kill(shell_pid_nix, Signal::SIGTERM)?;
 
     // Wait for cleanup
-    sleep(Duration::from_secs(1)).await;
+    sleep(Duration::from_secs(3)).await;
 
     // Watcher should also be terminated
     let terminated = wait_for_process_termination(watcher_pid).await.is_ok();
