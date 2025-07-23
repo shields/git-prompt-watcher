@@ -363,9 +363,9 @@ fn is_fswatch_running(pid: u32) -> bool {
         return false;
     }
     let mut sys = System::new();
-    sys.refresh_processes();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
     sys.process(sysinfo::Pid::from(pid as usize))
-        .is_some_and(|p| p.name().contains("fswatch"))
+        .is_some_and(|p| p.name().to_string_lossy().contains("fswatch"))
 }
 
 /// Polls the shell variable to get the watcher's PID.
@@ -659,7 +659,7 @@ async fn test_gitignore_change_handling() -> Result<()> {
     let current_pid = wait_for_fswatch_to_start(&mut child).await?;
 
     let mut sys = System::new();
-    sys.refresh_processes();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
     assert!(
         sys.process(sysinfo::Pid::from(current_pid as usize))
             .is_some(),
@@ -1001,7 +1001,7 @@ async fn test_fswatch_jobs_not_cluttering_output() -> Result<()> {
 
     // Verify watcher is running
     let mut sys = System::new();
-    sys.refresh_processes();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
     assert!(
         sys.process(sysinfo::Pid::from(watcher_pid as usize))
             .is_some(),
