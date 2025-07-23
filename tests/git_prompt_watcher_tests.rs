@@ -393,6 +393,38 @@ fn wait_for_process_termination_sync(pid: u32, timeout: Duration) -> bool {
     false
 }
 
+/// Polls for a prompt change by repeatedly triggering new prompts and checking for the expected pattern
+async fn wait_for_prompt_change(
+    session: &mut expectrl::Session,
+    pattern: &str,
+    context_msg: &str,
+) -> Result<()> {
+    let start = tokio::time::Instant::now();
+    let timeout = Duration::from_secs(5);
+    let mut attempt = 0;
+
+    while start.elapsed() < timeout {
+        attempt += 1;
+
+        // Trigger a new prompt to check current status
+        session.send_line(format!("echo 'checking_prompt_{attempt}'"))?;
+        session.expect(Regex(&format!("checking_prompt_{attempt}")))?;
+
+        // Try to match the expected pattern
+        if session.expect(Regex(pattern)).is_ok() {
+            return Ok(());
+        }
+
+        // If we didn't find the pattern, give a short delay before trying again
+        sleep(Duration::from_millis(100)).await;
+    }
+
+    Err(anyhow!(
+        "Timeout waiting for prompt change: {}",
+        context_msg
+    ))
+}
+
 #[tokio::test]
 
 async fn test_prerequisites() -> Result<()> {
@@ -909,18 +941,8 @@ async fn test_prompt_updates_with_starship() -> Result<()> {
     let untracked_file = ctx.test_repo_path.join("untracked.txt");
     fs::write(&untracked_file, "untracked content")?;
 
-    // Give fswatch time to detect the change and trigger prompt update
-    sleep(FSWATCH_DETECTION_DELAY).await;
-
-    // Send a command to trigger a new prompt with the git status
-    child.send_line("echo 'checking prompt'")?;
-    child.expect(Regex("checking prompt"))?;
-
-    // Look for the untracked status indicator (? followed by test>)
-    child
-        .expect(Regex(r"\? test>"))
-        .map_err(anyhow::Error::from)
-        .context("Prompt did not update for untracked file")?;
+    // Poll for the untracked status indicator (? followed by test>)
+    wait_for_prompt_change(&mut child, r"\? test>", "untracked file prompt update").await?;
 
     // Check if watcher is still running, restart if needed
     if !is_fswatch_running(watcher_pid) {
@@ -936,17 +958,8 @@ async fn test_prompt_updates_with_starship() -> Result<()> {
     // 2. Test staged files
     child.send_line("git add untracked.txt")?;
 
-    // Give time for the staging to complete and fswatch to detect
-    sleep(FSWATCH_DETECTION_DELAY).await;
-
-    child.send_line("echo 'checking staged prompt'")?;
-    child.expect(Regex("checking staged prompt"))?;
-
-    // Look for the staged status indicator (+ followed by test>)
-    child
-        .expect(Regex(r"\+ test>"))
-        .map_err(anyhow::Error::from)
-        .context("Prompt did not update for staged file")?;
+    // Poll for the staged status indicator (+ followed by test>)
+    wait_for_prompt_change(&mut child, r"\+ test>", "staged file prompt update").await?;
 
     // Final check that watcher is still functional
     let final_pid = get_watcher_pid(&mut child)?;
@@ -980,26 +993,21 @@ async fn test_prompt_updates_on_branch_switch_with_starship() -> Result<()> {
     child.send_line("git checkout -b feature-branch")?;
     child.expect(Regex("Switched to a new branch"))?;
 
-    // Give fswatch time to detect the branch change
-    sleep(FSWATCH_DETECTION_DELAY).await;
-
-    // Check prompt updated to new branch name
-    child.send_line("echo 'checking feature branch'")?;
-    child.expect(Regex("checking feature branch"))?;
-    child.expect(Regex(r"on feature-branch .*test>"))?;
+    // Poll for prompt update to new branch name
+    wait_for_prompt_change(
+        &mut child,
+        r"on feature-branch .*test>",
+        "feature branch prompt update",
+    )
+    .await?;
     assert!(is_fswatch_running(watcher_pid));
 
     // Switch back to main
     child.send_line("git checkout main")?;
     child.expect(Regex("Switched to branch"))?;
 
-    // Give fswatch time to detect the branch change
-    sleep(FSWATCH_DETECTION_DELAY).await;
-
-    // Check prompt updated back to main
-    child.send_line("echo 'checking main branch again'")?;
-    child.expect(Regex("checking main branch again"))?;
-    child.expect(Regex(r"on main .*test>"))?;
+    // Poll for prompt update back to main
+    wait_for_prompt_change(&mut child, r"on main .*test>", "main branch prompt update").await?;
     assert!(is_fswatch_running(watcher_pid));
 
     Ok(())
@@ -1068,11 +1076,8 @@ async fn test_watcher_restarts_between_different_repos() -> Result<()> {
     child.expect(Regex("PROMPT_READY"))?;
     child.expect(Regex("test>"))?;
 
-    // Give time for new watcher to start
-    sleep(Duration::from_millis(200)).await;
-
-    // Get new watcher PID
-    let new_pid = get_watcher_pid(&mut child)?;
+    // Wait for new watcher to start properly
+    let new_pid = wait_for_fswatch_to_start(&mut child).await?;
 
     // Verify that the new watcher is running
     assert!(
