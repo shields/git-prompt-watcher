@@ -10,9 +10,9 @@ sync:
 test:
   cargo test
 
-# Run tests with verbose output
+# Run tests with verbose output (parallel)
 test-verbose:
-  cargo test -- --nocapture --test-threads=1
+  cargo test -- --nocapture
 
 # Run specific test
 test-one TEST:
