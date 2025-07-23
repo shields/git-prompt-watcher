@@ -782,11 +782,8 @@ async fn test_gitignore_change_handling() -> Result<()> {
     let gitignore = ctx.test_repo_path.join(".gitignore");
     fs::write(&gitignore, "*.log\n")?;
 
-    // Give time for potential restart
-    sleep(Duration::from_millis(200)).await;
-
-    // Check if watcher is still running (same or new PID)
-    let current_pid = get_watcher_pid(&mut child)?;
+    // Wait for watcher to restart and be fully running after gitignore change
+    let current_pid = wait_for_fswatch_to_start(&mut child).await?;
 
     let mut sys = System::new();
     sys.refresh_processes();
