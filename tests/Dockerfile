@@ -1,9 +1,9 @@
 FROM rust:1.88.0-slim-bookworm@sha256:38bc5a86d998772d4aec2348656ed21438d20fcdce2795b56ca434cf21430d89
 
 # Use Debian snapshot for reproducible builds
-RUN echo "deb http://snapshot.debian.org/archive/debian/20250718T023724Z bookworm main" > /etc/apt/sources.list \
-    && echo "deb http://snapshot.debian.org/archive/debian-security/20250718T023724Z bookworm-security main" >> /etc/apt/sources.list \
-    && echo "deb http://snapshot.debian.org/archive/debian/20250718T023724Z bookworm-updates main" >> /etc/apt/sources.list \
+RUN echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20250718T023724Z bookworm main" > /etc/apt/sources.list \
+    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20250718T023724Z bookworm-security main" >> /etc/apt/sources.list \
+    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20250718T023724Z bookworm-updates main" >> /etc/apt/sources.list \
     && apt-get update && apt-get install -y \
     curl=7.88.1-10+deb12u12 \
     fswatch=1.14.0+repack-13.1+b1 \
