@@ -372,10 +372,10 @@ fn is_fswatch_running(pid: u32) -> bool {
 async fn get_watcher_pid_from_shell(session: &mut expectrl::Session) -> Result<u32> {
     let start = tokio::time::Instant::now();
     while start.elapsed() < PROCESS_POLL_TIMEOUT {
-        if let Ok(pid) = get_watcher_pid(session) {
-            if pid > 0 {
-                return Ok(pid);
-            }
+        if let Ok(pid) = get_watcher_pid(session)
+            && pid > 0
+        {
+            return Ok(pid);
         }
         sleep(POLL_INTERVAL).await;
     }

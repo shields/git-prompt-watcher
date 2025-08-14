@@ -10,7 +10,7 @@ RUN echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/2
     git=1:2.39.5-0+deb12u2 \
     zsh=5.9-4+b6 \
     pkg-config=1.8.1-1 \
-    libssl-dev=3.0.16-1~deb12u1 \
+    libssl-dev=3.0.17-1~deb12u2 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -LsSf https://astral.sh/uv/0.8.0/install.sh | sh
