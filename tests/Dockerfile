@@ -1,16 +1,20 @@
 FROM rust:1.89.0-slim-bookworm@sha256:21e2ac30e72a6d5b6d667b573eadad0578be9a5a99bac0b2b99b3d37795f90f9
 
-# Use Debian snapshot for reproducible builds
-RUN echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20250718T023724Z bookworm main" > /etc/apt/sources.list \
-    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20250718T023724Z bookworm-security main" >> /etc/apt/sources.list \
-    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20250718T023724Z bookworm-updates main" >> /etc/apt/sources.list \
-    && apt-get update && apt-get install -y \
-    curl=7.88.1-10+deb12u12 \
-    fswatch=1.14.0+repack-13.1+b1 \
-    git=1:2.39.5-0+deb12u2 \
-    zsh=5.9-4+b6 \
-    pkg-config=1.8.1-1 \
-    libssl-dev=3.0.17-1~deb12u2 \
+# Use Debian snapshot for reproducible builds.
+# The snapshot provides immutable package versions; the base image is pinned by
+# digest. Together these give reproducibility without fragile version pins that
+# break when the base image's pre-installed packages drift from the snapshot.
+RUN rm -f /etc/apt/sources.list.d/debian.sources \
+    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260212T022628Z bookworm main" > /etc/apt/sources.list \
+    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20260212T143415Z bookworm-security main" >> /etc/apt/sources.list \
+    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260212T022628Z bookworm-updates main" >> /etc/apt/sources.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    fswatch \
+    git \
+    zsh \
+    pkg-config \
+    libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN curl -LsSf https://astral.sh/uv/0.8.0/install.sh | sh
