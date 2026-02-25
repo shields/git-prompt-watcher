@@ -1,4 +1,4 @@
-FROM rust:1.93.1-slim-bookworm@sha256:fbd2b275db4cf82b6ffd911264ea7dd6ef7af1940e3244e6a4e9d1120d0b12af
+FROM rust:1.93.1-slim-bookworm@sha256:5b9332190bb3b9ece73b810cd1f1e9f06343b294ce184bcb067f0747d7d333ea
 
 # Use Debian snapshot for reproducible builds.
 # The snapshot provides immutable package versions; the base image is pinned by
