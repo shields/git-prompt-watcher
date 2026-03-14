@@ -198,7 +198,10 @@ impl TestContext {
         let plugin_path = project_root.join("git-prompt-watcher.plugin.zsh");
 
         if !plugin_path.exists() {
-            return Err(anyhow!("Plugin file not found at {:?}", plugin_path));
+            return Err(anyhow!(
+                "Plugin file not found at {}",
+                plugin_path.display()
+            ));
         }
 
         // Create isolated XDG_CONFIG_HOME directory structure
@@ -394,8 +397,7 @@ async fn wait_for_fswatch_to_start(session: &mut OsSession) -> Result<u32> {
         sleep(POLL_INTERVAL).await;
     }
     Err(anyhow!(
-        "fswatch process with PID {} did not start within timeout",
-        pid
+        "fswatch process with PID {pid} did not start within timeout"
     ))
 }
 
@@ -408,7 +410,7 @@ async fn wait_for_process_termination(pid: u32) -> Result<()> {
         }
         sleep(POLL_INTERVAL).await;
     }
-    Err(anyhow!("Process {} did not terminate within timeout", pid))
+    Err(anyhow!("Process {pid} did not terminate within timeout"))
 }
 
 /// Helper function to get watcher PID from shell session (backwards compatibility)
@@ -452,10 +454,7 @@ async fn wait_for_prompt_change(
     }
 
     Err(anyhow!(
-        "Prompt change pattern '{}' not found after {} attempts in context: {}",
-        pattern,
-        attempt,
-        context_msg
+        "Prompt change pattern '{pattern}' not found after {attempt} attempts in context: {context_msg}"
     ))
 }
 
