@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use expectrl::{Regex, Session};
+use expectrl::{Expect, Regex, session::OsSession};
 use git2::{Repository, Signature, Time};
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
@@ -283,7 +283,7 @@ impl TestContext {
         self.temp_dir.path().join(format!("attack_{attack_name}"))
     }
 
-    fn get_zsh_child(&self, cwd: Option<&Path>, use_starship: bool) -> Result<expectrl::Session> {
+    fn get_zsh_child(&self, cwd: Option<&Path>, use_starship: bool) -> Result<OsSession> {
         let cwd = cwd.unwrap_or(&self.test_repo_path);
 
         let common_setup = r#"
@@ -348,7 +348,8 @@ precmd() { echo "$PROMPT_MARKER" }
         command.env("XDG_CONFIG_HOME", &self.config_home);
         command.current_dir(cwd);
 
-        let mut session = Session::spawn(command).context("Failed to spawn Zsh session")?;
+        let mut session =
+            expectrl::Session::spawn(command).context("Failed to spawn Zsh session")?;
         session.set_expect_timeout(Some(Duration::from_secs(5)));
 
         session.expect(Regex(PROMPT_MARKER))?;
@@ -369,7 +370,7 @@ fn is_fswatch_running(pid: u32) -> bool {
 }
 
 /// Polls the shell variable to get the watcher's PID.
-async fn get_watcher_pid_from_shell(session: &mut expectrl::Session) -> Result<u32> {
+async fn get_watcher_pid_from_shell(session: &mut OsSession) -> Result<u32> {
     let start = tokio::time::Instant::now();
     while start.elapsed() < PROCESS_POLL_TIMEOUT {
         if let Ok(pid) = get_watcher_pid(session)
@@ -383,7 +384,7 @@ async fn get_watcher_pid_from_shell(session: &mut expectrl::Session) -> Result<u
 }
 
 /// Waits for the fswatch process to start by polling the shell variable.
-async fn wait_for_fswatch_to_start(session: &mut expectrl::Session) -> Result<u32> {
+async fn wait_for_fswatch_to_start(session: &mut OsSession) -> Result<u32> {
     let pid = get_watcher_pid_from_shell(session).await?;
     let start = tokio::time::Instant::now();
     while start.elapsed() < PROCESS_POLL_TIMEOUT {
@@ -411,7 +412,7 @@ async fn wait_for_process_termination(pid: u32) -> Result<()> {
 }
 
 /// Helper function to get watcher PID from shell session (backwards compatibility)
-fn get_watcher_pid(session: &mut expectrl::Session) -> Result<u32> {
+fn get_watcher_pid(session: &mut OsSession) -> Result<u32> {
     session.send_line("echo \"WATCHERPID:$_git_prompt_watcher_pid:\"")?;
     let output = session.expect(Regex(r"WATCHERPID:(\d+):"))?;
     let matches: Vec<_> = output.matches().collect();
@@ -427,7 +428,7 @@ fn get_watcher_pid(session: &mut expectrl::Session) -> Result<u32> {
 
 /// Polls for a prompt change by repeatedly triggering new prompts and checking for the expected pattern
 async fn wait_for_prompt_change(
-    session: &mut expectrl::Session,
+    session: &mut OsSession,
     pattern: &str,
     context_msg: &str,
 ) -> Result<()> {
