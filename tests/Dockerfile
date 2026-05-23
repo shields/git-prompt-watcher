@@ -5,9 +5,9 @@ FROM rust:1.95.0-slim-bookworm@sha256:d7482085ff5b415f84dba5647ae71606650bdef00d
 # digest. Together these give reproducibility without fragile version pins that
 # break when the base image's pre-installed packages drift from the snapshot.
 RUN rm -f /etc/apt/sources.list.d/debian.sources \
-    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260212T022628Z bookworm main" > /etc/apt/sources.list \
-    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20260212T143415Z bookworm-security main" >> /etc/apt/sources.list \
-    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260212T022628Z bookworm-updates main" >> /etc/apt/sources.list \
+    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260523T211231Z bookworm main" > /etc/apt/sources.list \
+    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20260523T195511Z bookworm-security main" >> /etc/apt/sources.list \
+    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260523T211231Z bookworm-updates main" >> /etc/apt/sources.list \
     && apt-get update && apt-get install -y --no-install-recommends \
     curl \
     fswatch \
