@@ -34,7 +34,7 @@ const FSWATCH_DETECTION_DELAY: Duration = Duration::from_millis(50);
 const PROCESS_CLEANUP_DELAY: Duration = Duration::from_millis(50);
 const WATCHER_RESTART_TIME: Duration = Duration::from_millis(500);
 const SIGNAL_PROCESSING_TIME: Duration = Duration::from_millis(200);
-const LARGE_CONTENT_PROCESSING_TIME: Duration = Duration::from_millis(1000);
+const LARGE_CONTENT_PROCESSING_TIME: Duration = Duration::from_secs(1);
 
 // Git config
 const TEST_EMAIL: &str = "test@example.com";
