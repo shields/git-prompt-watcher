@@ -7,7 +7,7 @@ Contributions are welcome! This document provides details on the development and
 The project uses `just` as a command runner. Here are the primary commands:
 
 - `just ci`: Run all tests with aggressive linting (recommended before submitting a PR).
-- `just test-main`: Run the main Rust test suite.
+- `just test`: Run the Rust test suite.
 - `just fmt`: Format the codebase.
 - `just lint`: Run the linter.
 
@@ -19,7 +19,7 @@ The project includes a comprehensive test suite that validates the `zsh` plugin'
 
 The main test suite is implemented in **Rust** using the `cargo test` framework. It provides a robust and reliable way to test the shell script's behavior.
 
-- **20 comprehensive tests** - All tests passing (100% success rate).
+- **27 comprehensive tests** - All tests passing (100% success rate).
 - **Real shell interaction** using `expectrl` (a Rust equivalent of `pexpect`).
 - **Git operations** with the `git2` crate for repository management.
 - **Process management** using the `sysinfo` crate for `fswatch` monitoring.
@@ -41,16 +41,16 @@ The main test suite is implemented in **Rust** using the `cargo test` framework.
 To run the Rust tests:
 
 ```bash
-just test-main
+just test
 ```
 
 ### Docker CI
 
 The project includes a fully reproducible Docker CI setup to ensure consistency.
 
-- **Base image**: Python 3.13-slim with a pinned SHA256 digest.
+- **Base image**: `rust:1.96.0-slim-bookworm` with a pinned SHA256 digest.
 - **Reproducible builds**: Uses Debian snapshot archives with specific timestamps.
-- **Pinned dependencies**: All system packages and tools are locked to exact versions.
+- **Pinned tools**: `just`, `starship`, and `uv` are installed at exact versions.
 - **Complete toolchain**: Includes Rust, cargo, `just`, `starship`, and all testing dependencies.
 
 To run the full CI suite inside Docker:

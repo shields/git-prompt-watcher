@@ -18,8 +18,8 @@ Git Prompt Watcher is a **zsh plugin** (oh-my-zsh compatible) that provides real
 
 Key characteristics:
 
-- Core functionality: `git-prompt-watcher.plugin.zsh` (162 lines)
-- Test suite: `tests/git_prompt_watcher_tests.rs` (1,439 lines, 27 tests)
+- Core functionality: `git-prompt-watcher.plugin.zsh` (177 lines)
+- Test suite: `tests/git_prompt_watcher_tests.rs` (1,399 lines, 27 tests)
 - Uses `fswatch` for file system monitoring and POSIX signals (`SIGUSR1`, `SIGUSR2`) for shell communication
 - Production-quality security testing including command injection prevention
 
@@ -29,7 +29,7 @@ Key characteristics:
 
 ```bash
 just ci              # Full CI pipeline (lint + check + test-verbose)
-just test-main       # Run main Rust test suite only
+just test            # Run the Rust test suite
 just test-one <name> # Run specific test by name
 just fix             # Auto-fix formatting and clippy issues
 ```
@@ -38,8 +38,7 @@ just fix             # Auto-fix formatting and clippy issues
 
 ```bash
 just test            # Basic test run
-just test-verbose    # Tests with full output (single-threaded)
-just test-simple     # Run only simple_test suite
+just test-verbose    # Tests with full output
 ```
 
 ## Code Quality
@@ -56,18 +55,18 @@ just check           # Check code compilation
 ```bash
 just build           # Debug build
 just build-release   # Release build
-just clean           # Clean all artifacts (Rust + legacy Python)
+just clean           # Clean build artifacts (cargo clean)
 ```
 
 # Architecture and Code Structure
 
 ## Core Plugin Logic (`git-prompt-watcher.plugin.zsh`)
 
-- **Watcher lifecycle**: `_gpw_start_watcher()`, `_gpw_stop_watcher()`, `_gpw_restart_watcher()`
-- **Signal handling**: `SIGUSR1` for prompt updates, `SIGUSR2` for watcher restarts
-- **Git detection**: Monitors `.git/index`, `.git/HEAD`, `.git/refs`, working directory
+- **Watcher lifecycle**: `_start_git_watcher()`, `_stop_git_watcher()`, `_check_git_repo_change()` (restarts the watcher on directory/repo changes)
+- **Signal handling**: `SIGUSR1` for prompt updates, `SIGUSR2` for watcher restarts (`TRAPUSR1`/`TRAPUSR2`)
+- **Git detection**: Monitors `.git/index`, `.git/HEAD`, `.git/refs`, `.git/info/exclude`, working directory
 - **Gitignore integration**: Respects ignore patterns, restarts watcher when `.gitignore` changes
-- **Process management**: Clean job control with `disown` and proper cleanup
+- **Process management**: Clean job control (`&!`) and cleanup via `zshexit_functions` and termination traps
 
 ## Test Infrastructure (`tests/git_prompt_watcher_tests.rs`)
 
