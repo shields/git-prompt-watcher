@@ -146,8 +146,10 @@ fn get_extended_malicious_patterns() -> Vec<String> {
         patterns.push(format!("file_encoded_in_{encoding}"));
     }
 
-    // Add non-UTF8 byte sequences (the original \xff\xfe sequences)
-    // Create as Vec<u8> then convert to String lossy
+    // Build a pattern from bytes that include invalid UTF-8 (0xff, 0xfe).
+    // from_utf8_lossy replaces those bytes with U+FFFD, so the gitignore the
+    // plugin sees contains replacement characters and an embedded NUL rather
+    // than the raw bytes; that is the realistic input fs::write can produce.
     let non_utf8_bytes = [
         b"file".to_vec(),
         vec![0xff, 0xfe, 0x00, 0x00],
@@ -1339,13 +1341,11 @@ async fn test_prompt_updates_with_starship() -> Result<()> {
     let output = child.expect(Regex(r"test>"))?;
     let prompt_output = String::from_utf8_lossy(output.before());
 
-    // Starship should indicate untracked files (usually with ?)
-    // The exact symbol may vary with starship config, but there should be some indicator
+    // tests/starship.toml maps untracked files to "?", so the prompt must
+    // contain that indicator once the untracked file exists.
     assert!(
-        prompt_output.contains('?')
-            || prompt_output.contains("untracked")
-            || !prompt_output.trim().is_empty(),
-        "Starship should show git status change indicator: {prompt_output}"
+        prompt_output.contains('?'),
+        "Starship should show untracked indicator '?': {prompt_output}"
     );
 
     // Watcher should still be running with starship
