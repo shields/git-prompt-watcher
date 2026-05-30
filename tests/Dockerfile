@@ -22,7 +22,7 @@ ENV PATH="/root/.local/bin:$PATH"
 
 RUN curl --proto '=https' -sSf https://just.systems/install.sh | bash -s -- --to /usr/local/bin --tag 1.42.2
 
-RUN curl -sS https://starship.rs/install.sh | sh -s -- --yes --version v1.21.1
+RUN curl --proto '=https' -fsSL https://starship.rs/install.sh | sh -s -- --yes --version v1.21.1
 
 RUN git config --global init.defaultBranch main
 
