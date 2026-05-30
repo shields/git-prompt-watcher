@@ -110,14 +110,14 @@ When modifying the plugin, always test security scenarios with malicious input p
 
 All managed via Cargo:
 
-- Testing: `expectrl`, `assert_cmd`, `serial_test`, `tempfile`
+- Testing: `expectrl`, `tempfile`
 - Git operations: `git2`
 - System interaction: `sysinfo`, `nix`, `tokio`
-- Utilities: `anyhow`, `regex`, `log`, `env_logger`
+- Utilities: `anyhow`, `log`, `env_logger`
 
 # Important Notes
 
-- Tests are **serialized** (`serial_test`) due to shared shell state and signal handling
+- Tests run in **parallel** (via `#[tokio::test]`); each spawns its own isolated zsh child process and signals only that child
 - The project has **no main Rust application code** - only comprehensive test infrastructure
 - Plugin is designed for **oh-my-zsh compatibility** but may work with other zsh frameworks
 - File system monitoring focuses on **git metadata** and **working directory changes** while respecting gitignore
