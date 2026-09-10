@@ -10,6 +10,7 @@ The project uses `just` as a command runner. Here are the primary commands:
 - `just test`: Run the Rust test suite.
 - `just fmt`: Format the codebase.
 - `just lint`: Run the linter.
+- `just bench`: Benchmark worktree switching latency; see [benchmark documentation](benchmarks/README.md).
 
 ## Testing
 
@@ -19,7 +20,7 @@ The project includes a comprehensive test suite that validates the `zsh` plugin'
 
 The main test suite is implemented in **Rust** using the `cargo test` framework. It provides a robust and reliable way to test the shell script's behavior.
 
-- **27 comprehensive tests** - All tests passing (100% success rate).
+- **Comprehensive tests** covering shell behavior and worktree-aware ignore discovery.
 - **Real shell interaction** using `expectrl` (a Rust equivalent of `pexpect`).
 - **Git operations** with the `git2` crate for repository management.
 - **Process management** using the `sysinfo` crate for `fswatch` monitoring.

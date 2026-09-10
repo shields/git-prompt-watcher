@@ -18,6 +18,11 @@ test-verbose:
 test-one TEST:
   cargo test {{TEST}}
 
+# Measure synchronous worktree switching overhead (see benchmarks/README.md)
+[positional-arguments]
+bench *ARGS:
+  python3 benchmarks/worktree-switch.py "$@"
+
 # Clean up build artifacts
 clean:
   cargo clean

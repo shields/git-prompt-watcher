@@ -70,17 +70,35 @@ _start_git_watcher() {
                 git ls-files --others --ignored --exclude-standard --directory 2>/dev/null | sed 's|/$|/.*|'
             } > "$filter_file"
 
-            # Find gitignore files to watch for changes. fswatch is not
-            # recursive on Linux/inotify and the working-tree watch below only
-            # reports the repo root's top level, so nested .gitignore files must
-            # be listed explicitly here to be watched at all.
-            local gitignore_files=()
+            # Nested .gitignore files need explicit watches on Linux/inotify.
+            # Let Git enumerate them without scanning ignored build directories,
+            # unrelated nested repositories, or .git on every worktree switch.
+            # An ignored .gitignore can still contain active rules, so include
+            # those files while retaining Git's pruning of ignored parents.
+            local -aU gitignore_files=()
+            local gitignore_file
             local repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
 
             if [[ -n "$repo_root" ]]; then
-                while IFS= read -r -d '' gitignore_file; do
-                    [[ -f "$gitignore_file" ]] && gitignore_files+=("$gitignore_file")
-                done < <(find "$repo_root" -name ".gitignore" -print0 2>/dev/null)
+                local -aU watch_roots=("$repo_root")
+                local watch_root
+                # Registered submodules contribute to the parent repo's status.
+                # foreach visits only checked-out submodules (including nested
+                # ones); NUL delimiters preserve spaces and newlines in paths.
+                if [[ -f "$repo_root/.gitmodules" ]]; then
+                    while IFS= read -r -d '' watch_root; do
+                        watch_roots+=("$watch_root")
+                    done < <(git -C "$repo_root" submodule foreach --quiet --recursive \
+                        'printf "%s\0" "$toplevel/$sm_path"' 2>/dev/null)
+                fi
+                for watch_root in "${watch_roots[@]}"; do
+                    while IFS= read -r -d '' gitignore_file; do
+                        gitignore_file="$watch_root/$gitignore_file"
+                        [[ -f "$gitignore_file" ]] && gitignore_files+=("$gitignore_file")
+                    done < <(git -C "$watch_root" ls-files --cached --others \
+                        --exclude-standard --exclude='!.gitignore' -z \
+                        -- ':(glob)**/.gitignore' 2>/dev/null)
+                done
             fi
 
             # Add global gitignore if it exists. --path makes git expand a

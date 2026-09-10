@@ -374,6 +374,35 @@ fn is_fswatch_running(pid: u32) -> bool {
         .is_some_and(|p| p.name().to_string_lossy().contains("fswatch"))
 }
 
+fn watched_paths(pid: u32) -> Result<Vec<PathBuf>> {
+    let pid = sysinfo::Pid::from(pid as usize);
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(
+        sysinfo::ProcessesToUpdate::Some(&[pid]),
+        true,
+        sysinfo::ProcessRefreshKind::nothing().with_cmd(sysinfo::UpdateKind::Always),
+    );
+    let process = sys
+        .process(pid)
+        .context("Watcher process exited before its watch paths could be read")?;
+    let args = process.cmd();
+    let separator = args
+        .iter()
+        .position(|arg| arg == "--")
+        .context("Watcher command has no path separator")?;
+    Ok(args[separator + 1..].iter().map(PathBuf::from).collect())
+}
+
+fn add_local_submodule(parent: &Repository, source: &Path, path: &str) -> Result<Repository> {
+    let url = source
+        .to_str()
+        .context("Submodule source path is not UTF-8")?;
+    let mut submodule = parent.submodule(url, Path::new(path), true)?;
+    let repo = submodule.clone(None)?;
+    submodule.add_finalize()?;
+    Ok(repo)
+}
+
 /// Polls the shell variable to get the watcher's PID.
 async fn get_watcher_pid_from_shell(session: &mut OsSession) -> Result<u32> {
     let start = tokio::time::Instant::now();
@@ -672,6 +701,230 @@ async fn test_gitignore_change_handling() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_gitignore_discovery_prunes_ignored_trees() -> Result<()> {
+    let ctx = TestContext::new()?;
+    let repo = ctx.create_test_repo()?;
+    let root = ctx.test_repo_path.canonicalize()?;
+    ctx.create_and_commit_file(
+        &repo,
+        ".gitignore",
+        "dependencies/\nself/.gitignore\n",
+        "Ignore dependencies and an active ignore file",
+    )?;
+    fs::create_dir_all(root.join("tracked/deep"))?;
+    ctx.create_and_commit_file(
+        &repo,
+        "tracked/deep/.gitignore",
+        "*.log\n",
+        "Track a nested ignore file",
+    )?;
+    // Include unusual names and an ignored .gitignore whose rules still apply.
+    for directory in [
+        "untracked space/line\nbreak",
+        "self",
+        "dependencies/package",
+        "embedded",
+        ".git/scan-fixture",
+    ] {
+        fs::create_dir_all(root.join(directory))?;
+        fs::write(root.join(directory).join(".gitignore"), "*.log\n")?;
+    }
+    Repository::init(root.join("embedded"))?;
+    fs::create_dir(root.join("deleted"))?;
+    ctx.create_and_commit_file(&repo, "deleted/.gitignore", "", "Track a removed file")?;
+    fs::remove_file(root.join("deleted/.gitignore"))?;
+
+    // Start below the root: discovery must still find ignore files elsewhere.
+    let mut child = ctx.get_zsh_child(Some(&root.join("tracked/deep")), false)?;
+    let pid = wait_for_fswatch_to_start(&mut child).await?;
+    let paths = watched_paths(pid)?;
+    for relative in [
+        ".gitignore",
+        "tracked/deep/.gitignore",
+        "untracked space/line\nbreak/.gitignore",
+        "self/.gitignore",
+    ] {
+        assert!(
+            paths.contains(&root.join(relative)),
+            "Not watched: {relative}"
+        );
+    }
+    for relative in [
+        "dependencies/package/.gitignore",
+        "embedded/.gitignore",
+        ".git/scan-fixture/.gitignore",
+        "deleted/.gitignore",
+    ] {
+        assert!(
+            !paths.contains(&root.join(relative)),
+            "Unexpected watch: {relative}"
+        );
+    }
+    child.send_line("exit")?;
+    child.expect(expectrl::Eof)?;
+    wait_for_process_termination(pid).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_gitignore_discovery_follows_worktree_switches() -> Result<()> {
+    let ctx = TestContext::new()?;
+    let repo = ctx.create_test_repo()?;
+    let root = ctx.test_repo_path.canonicalize()?;
+    fs::create_dir(root.join("src"))?;
+    ctx.create_and_commit_file(&repo, ".gitignore", ".worktrees/\n", "Ignore worktrees")?;
+    ctx.create_and_commit_file(&repo, "src/.gitignore", "*.log\n", "Add nested ignore")?;
+    fs::create_dir(root.join(".worktrees"))?;
+    let linked = root.join(".worktrees/linked worktree");
+    repo.worktree("linked", &linked, None)?;
+    fs::create_dir(linked.join("untracked"))?;
+    fs::write(linked.join("untracked/.gitignore"), "*.tmp\n")?;
+
+    let mut child = ctx.get_zsh_child(None, false)?;
+    let original_pid = wait_for_fswatch_to_start(&mut child).await?;
+    let paths = watched_paths(original_pid)?;
+    assert!(paths.contains(&root.join("src/.gitignore")));
+    assert!(!paths.iter().any(|p| p.starts_with(&linked)));
+
+    child.send_line("cd -- \"$GPW_TEMP_DIR/test_repo/.worktrees/linked worktree/src\"")?;
+    child.expect(Regex(PROMPT_MARKER))?;
+    child.expect(Regex(SHELL_PROMPT))?;
+    let linked_pid = wait_for_fswatch_to_start(&mut child).await?;
+    assert_ne!(original_pid, linked_pid);
+    wait_for_process_termination(original_pid)
+        .await
+        .context("Main-checkout watcher survived the worktree switch")?;
+    let paths = watched_paths(linked_pid)?;
+    for relative in [".gitignore", "src/.gitignore", "untracked/.gitignore"] {
+        assert!(
+            paths.contains(&linked.join(relative)),
+            "Not watched: {relative}"
+        );
+    }
+    assert!(!paths.contains(&root.join("src/.gitignore")));
+
+    child.send_line("cd -- \"$GPW_TEMP_DIR/test_repo\"")?;
+    child.expect(Regex(PROMPT_MARKER))?;
+    child.expect(Regex(SHELL_PROMPT))?;
+    let returned_pid = wait_for_fswatch_to_start(&mut child).await?;
+    assert_ne!(linked_pid, returned_pid);
+    wait_for_process_termination(linked_pid)
+        .await
+        .context("Linked-worktree watcher survived the return switch")?;
+    let paths = watched_paths(returned_pid)?;
+    assert!(paths.contains(&root.join("src/.gitignore")));
+    assert!(!paths.iter().any(|p| p.starts_with(&linked)));
+    child.send_line("exit")?;
+    child.expect(expectrl::Eof)?;
+    wait_for_process_termination(returned_pid).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_gitignore_discovery_watches_registered_submodules() -> Result<()> {
+    let ctx = TestContext::new()?;
+    let parent = ctx.create_test_repo()?;
+    let source = TestContext::new()?;
+    let source_repo = source.create_test_repo()?;
+    source.create_and_commit_file(
+        &source_repo,
+        ".gitignore",
+        "dependencies/\nself/.gitignore\n",
+        "Add submodule ignores",
+    )?;
+    fs::create_dir(source.test_repo_path.join("deep"))?;
+    source.create_and_commit_file(&source_repo, "deep/.gitignore", "*.log\n", "Nested ignore")?;
+    let submodule_path = "modules/sub module's";
+    let submodule = add_local_submodule(&parent, &source.test_repo_path, submodule_path)?;
+    ctx.create_and_commit_file(&parent, ".gitignore", "", "Commit submodule")?;
+    let root = ctx.test_repo_path.canonicalize()?;
+    let module_root = root.join(submodule_path);
+    for directory in [
+        "untracked space/line\nbreak",
+        "self",
+        "dependencies/package",
+        "embedded",
+    ] {
+        fs::create_dir_all(module_root.join(directory))?;
+        fs::write(module_root.join(directory).join(".gitignore"), "*.tmp\n")?;
+    }
+    Repository::init(module_root.join("embedded"))?;
+
+    let mut child = ctx.get_zsh_child(None, false)?;
+    let pid = wait_for_fswatch_to_start(&mut child).await?;
+    let paths = watched_paths(pid)?;
+    for relative in [
+        ".gitignore",
+        "deep/.gitignore",
+        "untracked space/line\nbreak/.gitignore",
+        "self/.gitignore",
+    ] {
+        assert!(
+            paths.contains(&module_root.join(relative)),
+            "Not watched: {relative}"
+        );
+    }
+    for relative in ["dependencies/package/.gitignore", "embedded/.gitignore"] {
+        assert!(
+            !paths.contains(&module_root.join(relative)),
+            "Unexpected watch: {relative}"
+        );
+    }
+
+    // This tracked edit changes the superproject's status and needs an explicit
+    // watch on Linux, where the superproject root watch is not recursive.
+    let before = parent.submodule_status(submodule_path, git2::SubmoduleIgnore::None)?;
+    assert!(!before.is_wd_wd_modified());
+    fs::write(module_root.join("deep/.gitignore"), "*.tmp\n")?;
+    assert!(
+        submodule
+            .status_file(Path::new("deep/.gitignore"))?
+            .is_wt_modified()
+    );
+    let after = parent.submodule_status(submodule_path, git2::SubmoduleIgnore::None)?;
+    assert!(after.is_wd_wd_modified());
+    child.send_line("exit")?;
+    child.expect(expectrl::Eof)?;
+    wait_for_process_termination(pid).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_gitignore_discovery_recurses_only_into_initialized_submodules() -> Result<()> {
+    let ctx = TestContext::new()?;
+    let parent = ctx.create_test_repo()?;
+    let leaf_source = TestContext::new()?;
+    let leaf_repo = leaf_source.create_test_repo()?;
+    leaf_source.create_and_commit_file(&leaf_repo, ".gitignore", "*.log\n", "Leaf ignore")?;
+    let source = TestContext::new()?;
+    let source_repo = source.create_test_repo()?;
+    add_local_submodule(&source_repo, &leaf_source.test_repo_path, "nested module")?;
+    source.create_and_commit_file(&source_repo, ".gitignore", "", "Commit nested module")?;
+    let outer = add_local_submodule(&parent, &source.test_repo_path, "outer module")?;
+    outer.find_submodule("nested module")?.update(true, None)?;
+    add_local_submodule(&parent, &leaf_source.test_repo_path, "uninitialized")?;
+    ctx.create_and_commit_file(&parent, ".gitignore", "", "Commit modules")?;
+    let root = ctx.test_repo_path.canonicalize()?;
+    // Leave an uninitialized gitlink with unrelated files in its directory.
+    fs::remove_dir_all(root.join("uninitialized"))?;
+    fs::create_dir(root.join("uninitialized"))?;
+    fs::write(root.join("uninitialized/.gitignore"), "*.tmp\n")?;
+
+    // The same discovery must work when the shell starts below the repo root.
+    fs::create_dir(root.join("src"))?;
+    let mut child = ctx.get_zsh_child(Some(&root.join("src")), false)?;
+    let pid = wait_for_fswatch_to_start(&mut child).await?;
+    let paths = watched_paths(pid)?;
+    assert!(paths.contains(&root.join("outer module/.gitignore")));
+    assert!(paths.contains(&root.join("outer module/nested module/.gitignore")));
+    assert!(!paths.contains(&root.join("uninitialized/.gitignore")));
+    child.send_line("exit")?;
+    child.expect(expectrl::Eof)?;
+    wait_for_process_termination(pid).await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_branch_switching() -> Result<()> {
     let ctx = TestContext::new()?;
     let repo = ctx.create_test_repo()?;
@@ -788,14 +1041,8 @@ async fn test_watcher_restarts_between_different_repos() -> Result<()> {
     let _repo1 = ctx.create_test_repo()?;
     let mut child = ctx.get_zsh_child(None, false)?;
 
-    // Get initial watcher PID
-    let initial_pid = get_watcher_pid(&mut child)?;
-
-    // Verify initial watcher is running
-    assert!(
-        is_fswatch_running(initial_pid),
-        "Initial watcher should be running"
-    );
+    // The disowned child may not have exec'd fswatch yet when its PID is set.
+    wait_for_fswatch_to_start(&mut child).await?;
 
     // Create second repository in a different location
     let repo2_path = ctx.temp_dir.path().join("second_repo");

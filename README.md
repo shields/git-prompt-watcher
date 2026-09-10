@@ -41,6 +41,8 @@ It solves the problem of slow shell prompts in large Git repositories by avoidin
 
 The plugin runs `fswatch` in the background to monitor key Git files (`.git/index`, `.git/HEAD`, `.git/refs`), your `.gitignore` files, and the working directory. When a change is detected, it sends a `SIGUSR1` signal to the parent Zsh process, which triggers `zle reset-prompt` to redraw your prompt.
 
+On repository or worktree changes, Git discovers the relevant `.gitignore` files in the checkout and its initialized submodules, including nested submodules. Ignored directories and unrelated nested repositories are skipped, keeping watcher startup from scanning dependency installations and other worktrees stored inside the checkout.
+
 ## Contributing
 
 Contributions are welcome! The plugin is rigorously tested using a custom-built test suite in Rust. For more details on testing and development, please see [CONTRIBUTING.md](CONTRIBUTING.md).
