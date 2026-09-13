@@ -328,14 +328,23 @@ _check_git_repo_change
 # Clean up watcher on shell exit and signals
 zshexit_functions+=(_git_prompt_watcher_exit)
 
-# Clean up on signals that terminate the shell, since zshexit_functions does not
-# run when the shell is killed by a signal. SIGINT (Ctrl-C) is deliberately not
-# handled: it interrupts the foreground command, not the shell, so stopping the
-# watcher on it would leave it dead until the next directory change.
-TRAPTERM() {
-    _stop_git_watcher
-}
-
-TRAPHUP() {
-    _stop_git_watcher
-}
+# There are deliberately no traps on the signals that terminate the shell, even
+# though that is the one path where zshexit_functions does not run. zsh reads a
+# zero return from a trap function as "signal handled" and carries on, so a trap
+# added merely to stop the watcher instead makes the shell outlive its terminal.
+# An idle shell still dies, because reading the destroyed tty fails, but one
+# waiting on a foreground job has only SIGHUP to go by, and swallowing that
+# strands it for good, burning a core on the redraw signals its orphaned watcher
+# goes on sending. Nothing restores the default behaviour in that state: not
+# returning 128 plus the signal number as zshmisc suggests, not re-raising the
+# signal with the trap reset, not exiting outright. Trapping SIGTERM is no safer,
+# since it makes a script that sources this plugin survive a kill that would
+# otherwise end it. Dropping it does cost one thing: an interactive shell ignores
+# SIGTERM whether or not this plugin is loaded, so sending one used to stop the
+# watcher of a shell that kept running, and now does nothing. Nothing documents
+# that, and it is not worth leaving every script unkillable to keep.
+#
+# Cleanup after a signal therefore belongs to the reader subprocess, which
+# notices within a second that the shell is gone, kills fswatch and removes the
+# temporary files through its own EXIT trap. Only the normal exit path, where the
+# shell is still around to do the work, cleans up synchronously.

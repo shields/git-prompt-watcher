@@ -315,8 +315,8 @@ export PATH="/opt/homebrew/bin:$PATH"
 DISABLE_AUTO_UPDATE=true
 DISABLE_UPDATE_PROMPT=true
 
-# Ensure cleanup happens on SIGTERM
-trap '_stop_git_watcher 2>/dev/null; exit' TERM
+# No trap on a terminating signal: one here would override the plugin's own
+# handling of it and hide from these tests how a real shell behaves.
 "#;
 
         let specific_setup = if use_starship {
@@ -457,6 +457,57 @@ async fn wait_for_process_termination(pid: u32) -> Result<()> {
         sleep(POLL_INTERVAL).await;
     }
     Err(anyhow!("Process {pid} did not terminate within timeout"))
+}
+
+/// Reads the PID of the session's own shell.
+fn shell_pid(session: &mut OsSession) -> Result<Pid> {
+    session.send_line("echo \"SHELLPID:$$:\"")?;
+    let output = session.expect(Regex(r"SHELLPID:(\d+):"))?;
+    let matches: Vec<_> = output.matches().collect();
+    let full_match = String::from_utf8_lossy(matches[0]);
+    let pid: i32 = full_match
+        .strip_prefix("SHELLPID:")
+        .context("Failed to strip prefix from shell PID match")?
+        .strip_suffix(":")
+        .context("Failed to strip suffix from shell PID match")?
+        .parse()?;
+    session.expect(Regex(SHELL_PROMPT))?;
+    Ok(Pid::from_raw(pid))
+}
+
+/// Runs a job in the foreground of the shell and returns its PID. The job
+/// reports its own PID because it outlives the shell waiting on it, and the
+/// test has to reap it once that shell is gone.
+fn start_foreground_job(session: &mut OsSession) -> Result<Pid> {
+    session.send_line("sh -c 'echo JOBPID:$$: ; exec sleep 30'")?;
+    let output = session.expect(Regex(r"JOBPID:(\d+):"))?;
+    let matches: Vec<_> = output.matches().collect();
+    let full_match = String::from_utf8_lossy(matches[0]);
+    let pid: i32 = full_match
+        .strip_prefix("JOBPID:")
+        .context("Failed to strip prefix from job PID match")?
+        .strip_suffix(":")
+        .context("Failed to strip suffix from job PID match")?
+        .parse()?;
+    Ok(Pid::from_raw(pid))
+}
+
+/// Waits for a process to stop running. A process this test suite spawned stays
+/// visible as a zombie until it is reaped, which counts as exited here.
+async fn wait_for_shell_exit(pid: Pid) -> Result<()> {
+    let pid = sysinfo::Pid::from(usize::try_from(pid.as_raw()).context("Shell PID was negative")?);
+    let start = tokio::time::Instant::now();
+    let mut system = System::new();
+    while start.elapsed() < PROCESS_POLL_TIMEOUT {
+        system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
+        match system.process(pid) {
+            None => return Ok(()),
+            Some(process) if process.status() == sysinfo::ProcessStatus::Zombie => return Ok(()),
+            Some(_) => {}
+        }
+        sleep(POLL_INTERVAL).await;
+    }
+    Err(anyhow!("Shell {pid} did not exit within timeout"))
 }
 
 /// Helper function to get watcher PID from shell session (backwards compatibility)
@@ -1158,39 +1209,89 @@ async fn test_watcher_cleanup_on_exit() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_watcher_killed_on_shell_exit() -> Result<()> {
+async fn test_watcher_killed_when_shell_is_hung_up() -> Result<()> {
     let ctx = TestContext::new()?;
     let _repo = ctx.create_test_repo()?;
     let mut child = ctx.get_zsh_child(None, false)?;
 
-    // Get shell PID and watcher PID
-    child.send_line("echo \"SHELL_PID:$$:\"")?;
-    let output = child.expect(Regex(r"SHELL_PID:(\d+):"))?;
-    let matches: Vec<_> = output.matches().collect();
-    let full_match = String::from_utf8_lossy(matches[0]);
-    let shell_pid: u32 = full_match
-        .strip_prefix("SHELL_PID:")
-        .unwrap()
-        .strip_suffix(":")
-        .unwrap()
-        .parse()?;
-    child.expect(Regex(SHELL_PROMPT))?;
+    let shell = shell_pid(&mut child)?;
+    let watcher_pid = wait_for_fswatch_to_start(&mut child).await?;
 
-    let watcher_pid = get_watcher_pid(&mut child)?;
+    // SIGHUP, not SIGTERM: an interactive zsh ignores SIGTERM even without this
+    // plugin, so a shell surviving that proves nothing.
+    signal::kill(shell, Signal::SIGHUP)?;
 
-    // Verify watcher is running
-    assert!(is_fswatch_running(watcher_pid), "Watcher should be running");
+    wait_for_shell_exit(shell)
+        .await
+        .context("Shell should exit when hung up")?;
 
-    // Kill the shell process
-    let shell_pid_nix = Pid::from_raw(i32::try_from(shell_pid).expect("shell PID too large"));
-    signal::kill(shell_pid_nix, Signal::SIGTERM)?;
-
-    // Wait for cleanup
-    sleep(Duration::from_secs(3)).await;
-
-    // Watcher should also be terminated
+    // Nothing in the shell runs after a signal kills it, so the reader
+    // subprocess is what has to notice and reap the watcher.
     let terminated = wait_for_process_termination(watcher_pid).await.is_ok();
     assert!(terminated, "Watcher should be terminated when shell exits");
+
+    Ok(())
+}
+
+/// A shell whose terminal is destroyed while it waits on a foreground job has
+/// only SIGHUP to tell it so, because it is not reading the tty to find out the
+/// hard way. A handler that swallows that signal leaves the shell running for
+/// good, which is how a zsh on this machine reached 107 hours of CPU time.
+#[tokio::test]
+async fn test_shell_exits_on_hangup_during_foreground_job() -> Result<()> {
+    let ctx = TestContext::new()?;
+    let _repo = ctx.create_test_repo()?;
+    let mut child = ctx.get_zsh_child(None, false)?;
+
+    let shell = shell_pid(&mut child)?;
+    let watcher_pid = wait_for_fswatch_to_start(&mut child).await?;
+    let job = start_foreground_job(&mut child)?;
+
+    signal::kill(shell, Signal::SIGHUP)?;
+
+    // The job outlives the shell that was waiting on it either way, so reap it
+    // before reporting a failure rather than leaving it behind.
+    let exited = wait_for_shell_exit(shell).await;
+    let _ = signal::kill(job, Signal::SIGKILL);
+    exited.context("Shell should exit when hung up while running a foreground job")?;
+
+    let terminated = wait_for_process_termination(watcher_pid).await.is_ok();
+    assert!(
+        terminated,
+        "Watcher should be terminated after the shell is hung up"
+    );
+
+    Ok(())
+}
+
+/// Sourcing the plugin must not make a script outlive a signal that would
+/// otherwise end it. A trap on SIGTERM applies to every shell, not just the
+/// interactive ones that ignore that signal anyway.
+#[tokio::test]
+async fn test_script_shell_still_dies_on_terminating_signals() -> Result<()> {
+    let ctx = TestContext::new()?;
+    let outside = ctx.temp_dir.path().join("non_git");
+    fs::create_dir_all(&outside)?;
+
+    for terminating in [Signal::SIGTERM, Signal::SIGHUP] {
+        let name = terminating.as_str();
+        // -f so no startup file of the developer running the tests can install
+        // a trap of its own and decide the outcome.
+        let output = Command::new("zsh")
+            .arg("-f")
+            .arg("-c")
+            .arg(format!(
+                "source \"$GPW_PLUGIN_PATH\"; kill -{name} $$; print SURVIVED"
+            ))
+            .env("GPW_PLUGIN_PATH", &ctx.plugin_path)
+            .current_dir(&outside)
+            .output()
+            .context("Failed to run zsh")?;
+        assert!(
+            !String::from_utf8_lossy(&output.stdout).contains("SURVIVED"),
+            "Script survived {name} after sourcing the plugin"
+        );
+    }
 
     Ok(())
 }
