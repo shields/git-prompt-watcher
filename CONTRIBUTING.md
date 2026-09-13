@@ -10,7 +10,7 @@ The project uses `just` as a command runner. Here are the primary commands:
 - `just test`: Run the Rust test suite.
 - `just fmt`: Format the codebase.
 - `just lint`: Run the linter.
-- `just bench`: Benchmark worktree switching latency; see [benchmark documentation](benchmarks/README.md).
+- `just bench`: Run all benchmarks; `just bench-worktree` and `just bench-startup` run one. See the [benchmark documentation](benchmarks/README.md).
 
 ## Testing
 

@@ -18,10 +18,18 @@ test-verbose:
 test-one TEST:
   cargo test {{TEST}}
 
-# Measure synchronous worktree switching overhead (see benchmarks/README.md)
+# Run all benchmarks with default settings (see benchmarks/README.md)
+bench: bench-worktree bench-startup
+
+# Measure synchronous worktree switching overhead
 [positional-arguments]
-bench *ARGS:
+bench-worktree *ARGS:
   python3 benchmarks/worktree-switch.py "$@"
+
+# Measure synchronous plugin startup cost
+[positional-arguments]
+bench-startup *ARGS:
+  python3 benchmarks/startup.py "$@"
 
 # Clean up build artifacts
 clean:
