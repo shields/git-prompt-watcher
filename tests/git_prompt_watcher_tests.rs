@@ -1408,6 +1408,40 @@ async fn test_watcher_starts_inside_bare_repository_without_objects_dir() -> Res
 }
 
 #[tokio::test]
+async fn test_watcher_starts_under_no_unset_without_a_work_tree() -> Result<()> {
+    let ctx = TestContext::new()?;
+    // A bare repository has no work tree, so Git answers with one line only.
+    let bare = ctx.temp_dir.path().join("bare.git");
+    Repository::init_bare(&bare)?;
+    let mut child = ctx.get_zsh_child_with(Some(&bare), false, &[], "setopt NO_UNSET\n")?;
+
+    wait_for_fswatch_to_start(&mut child).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_watcher_starts_in_repository_whose_path_contains_a_newline() -> Result<()> {
+    let ctx = TestContext::new()?;
+    // Reading the git directory and the root from one newline-separated answer
+    // would truncate both here.
+    let repo_path = ctx.temp_dir.path().join("odd\nname");
+    fs::create_dir_all(&repo_path)?;
+    Repository::init(&repo_path)?;
+    let root = repo_path.canonicalize()?;
+    let mut child = ctx.get_zsh_child(Some(&repo_path), false)?;
+
+    let watcher_pid = wait_for_fswatch_to_start(&mut child).await?;
+    let watched = watched_paths(watcher_pid)?;
+    assert!(
+        watched.contains(&root),
+        "Watcher should watch the whole repository root {root:?}, got {watched:?}"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_git_operations_trigger_monitoring() -> Result<()> {
     let ctx = TestContext::new()?;
     let repo = ctx.create_test_repo()?;

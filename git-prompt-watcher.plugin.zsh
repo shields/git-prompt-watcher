@@ -56,145 +56,157 @@ _start_git_watcher() {
     # _stop_git_watcher sends SIGKILL, which reliably reaps it.
     _stop_git_watcher
 
-    # Only start watcher if we're in a git repository
-    if git rev-parse --git-dir >/dev/null 2>&1; then
-        local git_dir=$(git rev-parse --git-dir 2>/dev/null)
-        if [[ -n "$git_dir" ]]; then
-            # Create temporary filter file for fswatch exclude patterns
-            local filter_file=$(mktemp -t gpw-filter.XXXXXX) || return 1
+    # One fork answers both questions. --show-toplevel fails where there is no
+    # work tree, as in a bare repository or inside .git, which leaves the git
+    # directory on its own line and the root empty, just as separate calls did.
+    local -a repo_paths=("${(@f)$(git rev-parse --git-dir --show-toplevel 2>/dev/null)}")
+    # The second line is absent without a work tree, so default it rather than
+    # let NO_UNSET abort the function there.
+    local git_dir=${repo_paths[1]} repo_root=${repo_paths[2]-}
 
-            # Add basic exclude patterns to filter file
-            {
-                echo '.git/objects/.*'
-                echo '.git/logs/.*'
-                git ls-files --others --ignored --exclude-standard --directory 2>/dev/null | sed 's|/$|/.*|'
-            } > "$filter_file"
+    # A path containing a newline splits across lines and would leave both
+    # answers truncated, so verify them and ask again separately when they do
+    # not hold up, since command substitution keeps each answer whole.
+    if [[ -n "$git_dir" ]] && ! [[ -d "$git_dir" && ( -z "$repo_root" || -d "$repo_root" ) ]]; then
+        git_dir=$(git rev-parse --git-dir 2>/dev/null)
+        repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
+    fi
 
-            # Nested .gitignore files need explicit watches on Linux/inotify.
-            # Let Git enumerate them without scanning ignored build directories,
-            # unrelated nested repositories, or .git on every worktree switch.
-            # An ignored .gitignore can still contain active rules, so include
-            # those files while retaining Git's pruning of ignored parents.
-            local -aU gitignore_files=()
-            local gitignore_file
-            local repo_root=$(git rev-parse --show-toplevel 2>/dev/null)
+    # Only start a watcher inside a git repository.
+    [[ -n "$git_dir" ]] || return 0
 
-            if [[ -n "$repo_root" ]]; then
-                local -aU watch_roots=("$repo_root")
-                local watch_root
-                # Registered submodules contribute to the parent repo's status.
-                # foreach visits only checked-out submodules (including nested
-                # ones); NUL delimiters preserve spaces and newlines in paths.
-                if [[ -f "$repo_root/.gitmodules" ]]; then
-                    while IFS= read -r -d '' watch_root; do
-                        watch_roots+=("$watch_root")
-                    done < <(git -C "$repo_root" submodule foreach --quiet --recursive \
-                        'printf "%s\0" "$toplevel/$sm_path"' 2>/dev/null)
-                fi
-                for watch_root in "${watch_roots[@]}"; do
-                    while IFS= read -r -d '' gitignore_file; do
-                        gitignore_file="$watch_root/$gitignore_file"
-                        [[ -f "$gitignore_file" ]] && gitignore_files+=("$gitignore_file")
-                    done < <(git -C "$watch_root" ls-files --cached --others \
-                        --exclude-standard --exclude='!.gitignore' -z \
-                        -- ':(glob)**/.gitignore' 2>/dev/null)
-                done
+    # Create temporary filter file for fswatch exclude patterns
+    local filter_file=$(mktemp -t gpw-filter.XXXXXX) || return 1
+
+    # Add basic exclude patterns to filter file
+    {
+        echo '.git/objects/.*'
+        echo '.git/logs/.*'
+        git ls-files --others --ignored --exclude-standard --directory 2>/dev/null | sed 's|/$|/.*|'
+    } > "$filter_file"
+
+    # Nested .gitignore files need explicit watches on Linux/inotify.
+    # Let Git enumerate them without scanning ignored build directories,
+    # unrelated nested repositories, or .git on every worktree switch.
+    # An ignored .gitignore can still contain active rules, so include
+    # those files while retaining Git's pruning of ignored parents.
+    local -aU gitignore_files=()
+    local gitignore_file
+
+    if [[ -n "$repo_root" ]]; then
+        local -aU watch_roots=("$repo_root")
+        local watch_root
+        # Registered submodules contribute to the parent repo's status.
+        # foreach visits only checked-out submodules (including nested
+        # ones); NUL delimiters preserve spaces and newlines in paths.
+        if [[ -f "$repo_root/.gitmodules" ]]; then
+            while IFS= read -r -d '' watch_root; do
+                watch_roots+=("$watch_root")
+            done < <(git -C "$repo_root" submodule foreach --quiet --recursive \
+                'printf "%s\0" "$toplevel/$sm_path"' 2>/dev/null)
+        fi
+        for watch_root in "${watch_roots[@]}"; do
+            while IFS= read -r -d '' gitignore_file; do
+                gitignore_file="$watch_root/$gitignore_file"
+                [[ -f "$gitignore_file" ]] && gitignore_files+=("$gitignore_file")
+            done < <(git -C "$watch_root" ls-files --cached --others \
+                --exclude-standard --exclude='!.gitignore' -z \
+                -- ':(glob)**/.gitignore' 2>/dev/null)
+        done
+    fi
+
+    # Add global gitignore if it exists. --path makes git expand a
+    # leading ~ so the -f test below does not silently fail on a path
+    # like ~/.gitignore_global.
+    local global_gitignore=$(git config --global --path core.excludesfile 2>/dev/null)
+    [[ -n "$global_gitignore" && -f "$global_gitignore" ]] && gitignore_files+=("$global_gitignore")
+
+    # Watch git files, working directory, and gitignore files.
+    # Create the named pipe inside a private mktemp directory rather than
+    # via `mktemp -u`, whose predictable name allows a symlink/TOCTOU
+    # attack in the shared temp dir.
+    local pipe_dir=$(mktemp -d -t gpw-pipe.XXXXXX) || { rm -f "$filter_file"; return 1; }
+    local pipe_file="$pipe_dir/pipe"
+    mkfifo "$pipe_file" || { rm -rf "$pipe_dir"; rm -f "$filter_file"; return 1; }
+
+    # Start fswatch in background and get its PID.
+    # --batch-marker makes fswatch print a "NoOp" line after each batch
+    # of events, letting the reader collapse a multi-file change into a
+    # single prompt redraw instead of emitting one signal per file.
+    # Some targets (e.g. .git/index before the first commit) may not
+    # exist yet; fswatch tolerates missing paths and keeps running, so
+    # they are passed unconditionally and start firing once created.
+    fswatch \
+            --batch-marker \
+            --filter-from="$filter_file" \
+            --latency=0.1 \
+            -- \
+            "$git_dir/index" \
+            "$git_dir/HEAD" \
+            "$git_dir/refs" \
+            "$git_dir/info/exclude" \
+            "${gitignore_files[@]}" \
+            "${repo_root:-$PWD}" \
+            </dev/null 2>/dev/null > "$pipe_file" &!
+    local fswatch_pid=$!
+
+    # Start the reader process. fswatch prints the changed paths of a
+    # batch followed by a "NoOp" marker line; the reader sends exactly
+    # one prompt-redraw signal (SIGUSR1) per batch.
+    #
+    # The FIFO is opened read-write (3<>) so the open never blocks: a
+    # read-only open would hang forever if fswatch failed to start (e.g.
+    # an unsupported flag). Because the reader then also holds a write
+    # end, EOF never arrives, so the loop instead runs while the fswatch
+    # process is alive and uses a timed read to poll for its exit.
+    local shell_pid=$$
+    {
+        # Clean up temp files when the reader ends, and exit promptly
+        # when signalled so _stop_git_watcher can reap it with SIGTERM.
+        trap 'rm -rf "$pipe_dir"; rm -f "$filter_file"' EXIT
+        trap 'exit' INT TERM HUP
+
+        while kill -0 "$fswatch_pid" 2>/dev/null; do
+            # Stop if the shell we serve has exited (portable liveness
+            # check; needs no external tools).
+            if ! kill -0 "$shell_pid" 2>/dev/null; then
+                kill -9 "$fswatch_pid" 2>/dev/null
+                break
+            fi
+            # Also stop if that PID was exec'd into a non-zsh process, so
+            # we never signal an unrelated program. Read the command name
+            # from /proc on Linux (no fork, and works without procps) and
+            # fall back to ps elsewhere (e.g. macOS, which has no /proc).
+            # If neither can tell us, skip this refinement rather than
+            # guess and kill a live watcher.
+            local shell_comm=""
+            if [[ -r /proc/$shell_pid/comm ]]; then
+                IFS= read -r shell_comm < /proc/$shell_pid/comm 2>/dev/null
+            elif (( $+commands[ps] )); then
+                shell_comm="$(ps -p "$shell_pid" -o comm= 2>/dev/null)"
+            fi
+            if [[ -n "$shell_comm" && "$shell_comm" != *zsh* ]]; then
+                kill -9 "$fswatch_pid" 2>/dev/null
+                break
             fi
 
-            # Add global gitignore if it exists. --path makes git expand a
-            # leading ~ so the -f test below does not silently fail on a path
-            # like ~/.gitignore_global.
-            local global_gitignore=$(git config --global --path core.excludesfile 2>/dev/null)
-            [[ -n "$global_gitignore" && -f "$global_gitignore" ]] && gitignore_files+=("$global_gitignore")
+            IFS= read -r -t 1 line <&3 || continue
 
-            # Watch git files, working directory, and gitignore files.
-            # Create the named pipe inside a private mktemp directory rather than
-            # via `mktemp -u`, whose predictable name allows a symlink/TOCTOU
-            # attack in the shared temp dir.
-            local pipe_dir=$(mktemp -d -t gpw-pipe.XXXXXX) || { rm -f "$filter_file"; return 1; }
-            local pipe_file="$pipe_dir/pipe"
-            mkfifo "$pipe_file" || { rm -rf "$pipe_dir"; rm -f "$filter_file"; return 1; }
+            # One redraw per batch: act only on the end-of-batch marker
+            # and ignore the individual path lines that precede it.
+            [[ "$line" == "NoOp" ]] && kill -USR1 "$shell_pid" 2>/dev/null
+        done 3<> "$pipe_file"
+    } &!
+    local reader_pid=$!
 
-            # Start fswatch in background and get its PID.
-            # --batch-marker makes fswatch print a "NoOp" line after each batch
-            # of events, letting the reader collapse a multi-file change into a
-            # single prompt redraw instead of emitting one signal per file.
-            # Some targets (e.g. .git/index before the first commit) may not
-            # exist yet; fswatch tolerates missing paths and keeps running, so
-            # they are passed unconditionally and start firing once created.
-            fswatch \
-                    --batch-marker \
-                    --filter-from="$filter_file" \
-                    --latency=0.1 \
-                    -- \
-                    "$git_dir/index" \
-                    "$git_dir/HEAD" \
-                    "$git_dir/refs" \
-                    "$git_dir/info/exclude" \
-                    "${gitignore_files[@]}" \
-                    "${repo_root:-$PWD}" \
-                    </dev/null 2>/dev/null > "$pipe_file" &!
-            local fswatch_pid=$!
-
-            # Start the reader process. fswatch prints the changed paths of a
-            # batch followed by a "NoOp" marker line; the reader sends exactly
-            # one prompt-redraw signal (SIGUSR1) per batch.
-            #
-            # The FIFO is opened read-write (3<>) so the open never blocks: a
-            # read-only open would hang forever if fswatch failed to start (e.g.
-            # an unsupported flag). Because the reader then also holds a write
-            # end, EOF never arrives, so the loop instead runs while the fswatch
-            # process is alive and uses a timed read to poll for its exit.
-            local shell_pid=$$
-            {
-                # Clean up temp files when the reader ends, and exit promptly
-                # when signalled so _stop_git_watcher can reap it with SIGTERM.
-                trap 'rm -rf "$pipe_dir"; rm -f "$filter_file"' EXIT
-                trap 'exit' INT TERM HUP
-
-                while kill -0 "$fswatch_pid" 2>/dev/null; do
-                    # Stop if the shell we serve has exited (portable liveness
-                    # check; needs no external tools).
-                    if ! kill -0 "$shell_pid" 2>/dev/null; then
-                        kill -9 "$fswatch_pid" 2>/dev/null
-                        break
-                    fi
-                    # Also stop if that PID was exec'd into a non-zsh process, so
-                    # we never signal an unrelated program. Read the command name
-                    # from /proc on Linux (no fork, and works without procps) and
-                    # fall back to ps elsewhere (e.g. macOS, which has no /proc).
-                    # If neither can tell us, skip this refinement rather than
-                    # guess and kill a live watcher.
-                    local shell_comm=""
-                    if [[ -r /proc/$shell_pid/comm ]]; then
-                        IFS= read -r shell_comm < /proc/$shell_pid/comm 2>/dev/null
-                    elif (( $+commands[ps] )); then
-                        shell_comm="$(ps -p "$shell_pid" -o comm= 2>/dev/null)"
-                    fi
-                    if [[ -n "$shell_comm" && "$shell_comm" != *zsh* ]]; then
-                        kill -9 "$fswatch_pid" 2>/dev/null
-                        break
-                    fi
-
-                    IFS= read -r -t 1 line <&3 || continue
-
-                    # One redraw per batch: act only on the end-of-batch marker
-                    # and ignore the individual path lines that precede it.
-                    [[ "$line" == "NoOp" ]] && kill -USR1 "$shell_pid" 2>/dev/null
-                done 3<> "$pipe_file"
-            } &!
-            local reader_pid=$!
-
-            # Track both processes so _stop_git_watcher can reap the reader too;
-            # _git_prompt_watcher_pid is the fswatch PID the tests inspect. Also
-            # record the temp paths so _stop_git_watcher can remove them even if
-            # the reader is killed before its cleanup trap is installed.
-            _git_prompt_watcher_pid=$fswatch_pid
-            _git_prompt_reader_pid=$reader_pid
-            _git_prompt_pipe_dir=$pipe_dir
-            _git_prompt_filter_file=$filter_file
-        fi
-    fi
+    # Track both processes so _stop_git_watcher can reap the reader too;
+    # _git_prompt_watcher_pid is the fswatch PID the tests inspect. Also
+    # record the temp paths so _stop_git_watcher can remove them even if
+    # the reader is killed before its cleanup trap is installed.
+    _git_prompt_watcher_pid=$fswatch_pid
+    _git_prompt_reader_pid=$reader_pid
+    _git_prompt_pipe_dir=$pipe_dir
+    _git_prompt_filter_file=$filter_file
 }
 
 _stop_git_watcher() {
