@@ -289,6 +289,18 @@ impl TestContext {
     }
 
     fn get_zsh_child(&self, cwd: Option<&Path>, use_starship: bool) -> Result<OsSession> {
+        self.get_zsh_child_with(cwd, use_starship, &[], "")
+    }
+
+    /// Like `get_zsh_child`, with extra environment variables for the shell and
+    /// zsh code that runs before the plugin is sourced.
+    fn get_zsh_child_with(
+        &self,
+        cwd: Option<&Path>,
+        use_starship: bool,
+        env: &[(&str, &str)],
+        prelude: &str,
+    ) -> Result<OsSession> {
         let cwd = cwd.unwrap_or(&self.test_repo_path);
 
         let common_setup = r#"
@@ -335,7 +347,7 @@ precmd() { echo "$PROMPT_MARKER" }
 "#
         };
 
-        let zshrc_content = format!("{common_setup}{specific_setup}");
+        let zshrc_content = format!("{common_setup}{prelude}{specific_setup}");
         let zshrc_path = self.temp_dir.path().join(".zshrc");
         fs::write(&zshrc_path, zshrc_content).context("Failed to write .zshrc")?;
 
@@ -351,6 +363,9 @@ precmd() { echo "$PROMPT_MARKER" }
         );
         // Isolate Git configuration using XDG_CONFIG_HOME
         command.env("XDG_CONFIG_HOME", &self.config_home);
+        for (key, value) in env {
+            command.env(key, value);
+        }
         command.current_dir(cwd);
 
         let mut session =
@@ -1206,6 +1221,188 @@ async fn test_watcher_really_stops_when_leaving_repo() -> Result<()> {
         !is_fswatch_running(initial_pid),
         "Original watcher should be stopped when leaving repo"
     );
+
+    Ok(())
+}
+
+/// Zsh that records every git invocation the plugin makes, so a test can assert
+/// whether the plugin forked git at all.
+fn git_logging_prelude(log: &Path) -> String {
+    format!(
+        "git() {{ print -r -- \"$*\" >> \"{}\"; command git \"$@\"; }}\n",
+        log.display()
+    )
+}
+
+/// Sends `cd` and waits for the prompt that follows it.
+fn change_directory(session: &mut OsSession, directory: &Path) -> Result<()> {
+    session.send_line(format!("cd {}", directory.display()))?;
+    session.expect(Regex(PROMPT_MARKER))?;
+    session.expect(Regex(SHELL_PROMPT))?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_no_git_fork_outside_repository() -> Result<()> {
+    let ctx = TestContext::new()?;
+    let _repo = ctx.create_test_repo()?;
+    let outside = ctx.temp_dir.path().join("non_git");
+    fs::create_dir_all(&outside)?;
+
+    let log = ctx.temp_dir.path().join("git-calls.log");
+    let prelude = git_logging_prelude(&log);
+    let mut child = ctx.get_zsh_child_with(Some(&outside), false, &[], &prelude)?;
+
+    assert!(
+        !log.exists(),
+        "Plugin forked git while starting outside a repository: {}",
+        fs::read_to_string(&log).unwrap_or_default()
+    );
+
+    change_directory(&mut child, &ctx.test_repo_path)?;
+    wait_for_fswatch_to_start(&mut child).await?;
+    let calls = fs::read_to_string(&log)?;
+    assert!(
+        calls.contains("rev-parse --absolute-git-dir"),
+        "Repository detection should ask git inside a repository: {calls}"
+    );
+
+    change_directory(&mut child, &outside)?;
+    assert_eq!(
+        fs::read_to_string(&log)?,
+        calls,
+        "Leaving the repository should not fork git"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_watcher_starts_through_symlink_into_repository() -> Result<()> {
+    let ctx = TestContext::new()?;
+    let _repo = ctx.create_test_repo()?;
+    let subdir = ctx.test_repo_path.join("src");
+    fs::create_dir_all(&subdir)?;
+    let outside = ctx.temp_dir.path().join("non_git");
+    fs::create_dir_all(&outside)?;
+    // Nothing above the logical path is a repository; the physical path is.
+    let link = outside.join("link");
+    std::os::unix::fs::symlink(&subdir, &link)?;
+    let mut child = ctx.get_zsh_child(Some(&outside), false)?;
+
+    change_directory(&mut child, &link)?;
+    child.send_line("echo \"PWD_IS:$PWD:\"")?;
+    child.expect(Regex("PWD_IS:[^:]*/link:"))?;
+    child.expect(Regex(SHELL_PROMPT))?;
+
+    wait_for_fswatch_to_start(&mut child).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_watcher_stops_through_symlink_out_of_repository() -> Result<()> {
+    let ctx = TestContext::new()?;
+    let _repo = ctx.create_test_repo()?;
+    let outside = ctx.temp_dir.path().join("non_git");
+    fs::create_dir_all(&outside)?;
+    // The logical path stays inside the repository; git follows the physical one.
+    let link = ctx.test_repo_path.join("link-out");
+    std::os::unix::fs::symlink(&outside, &link)?;
+    let log = ctx.temp_dir.path().join("git-calls.log");
+    let prelude = git_logging_prelude(&log);
+    let mut child = ctx.get_zsh_child_with(None, false, &[], &prelude)?;
+    let watcher_pid = wait_for_fswatch_to_start(&mut child).await?;
+    let calls = fs::read_to_string(&log)?;
+
+    change_directory(&mut child, &link)?;
+    child.send_line("echo \"PWD_IS:$PWD:\"")?;
+    child.expect(Regex("PWD_IS:[^:]*/link-out:"))?;
+    child.expect(Regex(SHELL_PROMPT))?;
+
+    // Walking the logical path would find the repository's .git and fork git,
+    // which then answers correctly; only the physical walk skips the fork.
+    assert_eq!(
+        fs::read_to_string(&log)?,
+        calls,
+        "Leaving the repository through a symlink should not fork git"
+    );
+    wait_for_process_termination(watcher_pid).await?;
+    child.send_line("echo \"WATCHERPID:'$_git_prompt_watcher_pid':\"")?;
+    child.expect(Regex("WATCHERPID:'':"))?;
+    child.expect(Regex(SHELL_PROMPT))?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_watcher_starts_with_git_dir_environment() -> Result<()> {
+    let ctx = TestContext::new()?;
+    let _repo = ctx.create_test_repo()?;
+    let outside = ctx.temp_dir.path().join("non_git");
+    fs::create_dir_all(&outside)?;
+    // GIT_DIR makes git use a repository that no directory walk would find.
+    let git_dir = ctx.test_repo_path.join(".git");
+    let git_dir = git_dir.to_string_lossy();
+    let mut child =
+        ctx.get_zsh_child_with(Some(&outside), false, &[("GIT_DIR", git_dir.as_ref())], "")?;
+
+    wait_for_fswatch_to_start(&mut child).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_watcher_starts_inside_bare_repository() -> Result<()> {
+    let ctx = TestContext::new()?;
+    // A bare repository has no .git entry; the directory itself is the git dir.
+    let bare = ctx.temp_dir.path().join("bare.git");
+    Repository::init_bare(&bare)?;
+    let hooks = bare.join("hooks");
+    fs::create_dir_all(&hooks)?;
+    let mut child = ctx.get_zsh_child(Some(&hooks), false)?;
+
+    wait_for_fswatch_to_start(&mut child).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_watcher_starts_inside_bare_repository_with_symlinked_head() -> Result<()> {
+    let ctx = TestContext::new()?;
+    let bare = ctx.temp_dir.path().join("bare.git");
+    Repository::init_bare(&bare)?;
+    // Git accepts a symlinked HEAD without resolving it, so this repository is
+    // valid even though the branch it names has no commit yet.
+    let head = bare.join("HEAD");
+    fs::remove_file(&head)?;
+    std::os::unix::fs::symlink("refs/heads/main", &head)?;
+    let mut child = ctx.get_zsh_child(Some(&bare), false)?;
+
+    wait_for_fswatch_to_start(&mut child).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_watcher_starts_inside_bare_repository_without_objects_dir() -> Result<()> {
+    let ctx = TestContext::new()?;
+    let bare = ctx.temp_dir.path().join("bare.git");
+    Repository::init_bare(&bare)?;
+    let hooks = bare.join("hooks");
+    fs::create_dir_all(&hooks)?;
+    // Only GIT_OBJECT_DIRECTORY makes this a repository once objects/ moves away.
+    let objects = ctx.temp_dir.path().join("objects");
+    fs::rename(bare.join("objects"), &objects)?;
+    let objects = objects.to_string_lossy();
+    let mut child = ctx.get_zsh_child_with(
+        Some(&hooks),
+        false,
+        &[("GIT_OBJECT_DIRECTORY", objects.as_ref())],
+        "",
+    )?;
+
+    wait_for_fswatch_to_start(&mut child).await?;
 
     Ok(())
 }

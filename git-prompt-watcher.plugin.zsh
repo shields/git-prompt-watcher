@@ -1,6 +1,6 @@
 # Git status monitoring for prompt updates
 #
-# Copyright 2025 Michael Shields
+# Copyright 2025-2026 Michael Shields
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -218,9 +218,35 @@ _stop_git_watcher() {
     _git_prompt_filter_file=""
 }
 
+# Decide cheaply whether git could find a repository from the current directory,
+# so that the common case of no repository anywhere above skips forking git. Any
+# candidate defers to git, which has the final say.
+_gpw_repo_possible() {
+    # With GIT_DIR set, git uses it without searching the directory tree.
+    [[ -n ${GIT_DIR-} ]] && return 0
+    # Git searches from the physical directory, so a symlink in $PWD must
+    # neither hide the real ancestors nor invent others. If the physical path
+    # cannot be determined, let git decide.
+    local dir=${PWD:A}
+    [[ $dir == /* ]] || return 0
+    while :; do
+        # A .git directory, or a .git file in linked worktrees and submodules.
+        [[ -e $dir/.git ]] && return 0
+        # The directory itself is a git directory, as in a bare repository.
+        # Git accepts a symlinked HEAD by its link text alone, so -L must
+        # cover one whose target is an unborn ref, which -e would reject.
+        [[ ( -e $dir/HEAD || -L $dir/HEAD ) && -d $dir/refs &&
+           ( -d $dir/objects || -n ${GIT_OBJECT_DIRECTORY-} ) ]] && return 0
+        [[ $dir == / ]] && return 1
+        dir=${dir:h}
+    done
+}
+
 _check_git_repo_change() {
     local current_git_dir=""
-    current_git_dir=$(git rev-parse --absolute-git-dir 2>/dev/null)
+    if _gpw_repo_possible; then
+        current_git_dir=$(git rev-parse --absolute-git-dir 2>/dev/null)
+    fi
 
     # Only restart watcher if git directory changed
     if [[ "$current_git_dir" != "$_git_prompt_current_git_dir" ]]; then
