@@ -19,6 +19,9 @@ _git_prompt_reader_pid=""
 _git_prompt_pipe_dir=""
 _git_prompt_filter_file=""
 _git_prompt_current_git_dir=""
+_git_prompt_focused=1
+_git_prompt_redraw_pending=0
+_git_prompt_focus_reporting=0
 
 # Print the parent PID of pid, or nothing if it cannot be determined. Reads from
 # /proc on Linux (no fork, and works without procps) and falls back to ps
@@ -274,6 +277,10 @@ _check_git_repo_change() {
 # Safely reset prompt, avoiding interference with active zle operations
 _safe_reset_prompt() {
     if zle; then
+        if (( ! _git_prompt_focused )); then
+            _git_prompt_redraw_pending=1
+            return 0
+        fi
         # Check if we're in the middle of completion, search, or other sensitive operations
         case "${WIDGET:-}" in
             expand-or-complete|complete-word|menu-*|*search*|*history*|\
@@ -282,9 +289,34 @@ _safe_reset_prompt() {
                 ;;
             *)
                 # Safe to reset prompt
+                _git_prompt_redraw_pending=0
                 zle reset-prompt
                 ;;
         esac
+    fi
+}
+
+_gpw_focus_in() {
+    _git_prompt_focused=1
+    if (( _git_prompt_redraw_pending )); then
+        _safe_reset_prompt
+    fi
+}
+
+_gpw_focus_out() {
+    _git_prompt_focused=0
+}
+
+_gpw_focus_start() {
+    _git_prompt_redraw_pending=0
+    _git_prompt_focus_reporting=1
+    printf '\e[?1004h'
+}
+
+_gpw_focus_stop() {
+    if (( _git_prompt_focus_reporting )); then
+        printf '\e[?1004l'
+        _git_prompt_focus_reporting=0
     fi
 }
 
@@ -309,6 +341,7 @@ TRAPUSR2() {
 # keeps running and reaps it, so this wait is only needed at exit, which keeps
 # _stop_git_watcher fast on the interactive path.
 _git_prompt_watcher_exit() {
+    _gpw_focus_stop
     local pid=$_git_prompt_watcher_pid
     _stop_git_watcher
     local i
@@ -318,6 +351,26 @@ _git_prompt_watcher_exit() {
         sleep 0.02
     done
 }
+
+if [[ -o interactive && -t 1 && ${TERM_PROGRAM:-} == (iTerm.app|ghostty) &&
+      -z ${TMUX:-} && -z ${STY:-} ]]; then
+    autoload -Uz add-zle-hook-widget
+    zle -N _gpw_focus_in
+    zle -N _gpw_focus_out
+    () {
+        local keymap
+        for keymap in main emacs viins vicmd; do
+            bindkey -M "$keymap" $'\e[I' _gpw_focus_in
+            bindkey -M "$keymap" $'\e[O' _gpw_focus_out
+        done
+    }
+    # Foreground programs must not receive focus events intended for ZLE.
+    add-zle-hook-widget line-init _gpw_focus_start
+    add-zle-hook-widget line-finish _gpw_focus_stop
+    # Incremental search exits when it receives a user-defined widget's key.
+    add-zle-hook-widget isearch-update _gpw_focus_stop
+    add-zle-hook-widget isearch-exit _gpw_focus_start
+fi
 
 # Check for git repo changes when changing directories
 chpwd_functions+=(_check_git_repo_change)

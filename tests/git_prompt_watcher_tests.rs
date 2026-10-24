@@ -702,6 +702,183 @@ async fn test_signal_handling_setup() -> Result<()> {
     Ok(())
 }
 
+async fn wait_for_file_contents(path: &Path, expected: &str) -> Result<()> {
+    let start = tokio::time::Instant::now();
+    while start.elapsed() < PROCESS_POLL_TIMEOUT {
+        match fs::read_to_string(path) {
+            Ok(contents) if contents == expected => return Ok(()),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        sleep(POLL_INTERVAL).await;
+    }
+    Err(anyhow!(
+        "Timed out waiting for {} to contain {expected:?}",
+        path.display()
+    ))
+}
+
+async fn focus_test_barrier(ctx: &TestContext, child: &mut OsSession) -> Result<()> {
+    let path = ctx.temp_dir.path().join("focus_barrier");
+    if path.exists() {
+        fs::remove_file(&path)?;
+    }
+    child.send("\x1d")?;
+    wait_for_file_contents(&path, "ready\n").await
+}
+
+fn focus_test_child(ctx: &TestContext, terminal: &str) -> Result<OsSession> {
+    ctx.get_zsh_child_with(
+        Some(ctx.temp_dir.path()),
+        false,
+        &[
+            ("TERM_PROGRAM", terminal),
+            ("TERM", "xterm-256color"),
+            ("TMUX", ""),
+            ("STY", ""),
+        ],
+        r#"
+setopt NO_UNSET
+bindkey -e
+_gpw_test_barrier() {
+    print -r -- "$BUFFER" > "$GPW_TEMP_DIR/focus_buffer"
+    print -r -- ready > "$GPW_TEMP_DIR/focus_barrier"
+}
+zle -N _gpw_test_barrier
+for keymap in emacs viins vicmd; do
+    bindkey -M "$keymap" '^]' _gpw_test_barrier
+done
+zle-line-init() { print -r -- init >> "$GPW_TEMP_DIR/focus_hooks" }
+zle-line-finish() { print -r -- finish >> "$GPW_TEMP_DIR/focus_hooks" }
+zle -N zle-line-init
+zle -N zle-line-finish
+print -r -- $$ > "$GPW_TEMP_DIR/focus_pid"
+"#,
+    )
+}
+
+#[tokio::test]
+async fn test_focus_defers_prompt_updates_without_output() -> Result<()> {
+    for terminal in ["iTerm.app", "ghostty"] {
+        for keymap in ["emacs", "viins", "vicmd"] {
+            let ctx = TestContext::new()?;
+            let mut child = focus_test_child(&ctx, terminal)?;
+            child.expect("\x1b[?1004h")?;
+            let main_keymap = if keymap == "vicmd" { "viins" } else { keymap };
+            child.send_line(format!(
+                "functions[TRAPUSR1]+=$'\\nprint -r -- handled >> \"$GPW_TEMP_DIR/focus_signals\"'; bindkey -A {main_keymap} main"
+            ))?;
+            child.expect("\x1b[?1004l")?;
+            child.expect("\x1b[?1004h")?;
+            focus_test_barrier(&ctx, &mut child).await?;
+            child.check(Regex("(?s).+"))?;
+
+            child.send("\x1b[I\x1b[O\x1b[I")?;
+            focus_test_barrier(&ctx, &mut child).await?;
+            assert!(
+                !child.is_matched(Regex("(?s).+"))?,
+                "Focus events without pending updates must be silent ({terminal}, {keymap})"
+            );
+
+            child.send("echo preserved")?;
+            if keymap == "vicmd" {
+                child.send("\x1b")?;
+                sleep(Duration::from_millis(500)).await;
+            }
+            focus_test_barrier(&ctx, &mut child).await?;
+            child.check(Regex("(?s).+"))?;
+            child.send("\x1b[O")?;
+            focus_test_barrier(&ctx, &mut child).await?;
+
+            let pid = fs::read_to_string(ctx.temp_dir.path().join("focus_pid"))?;
+            let pid = Pid::from_raw(pid.trim().parse()?);
+            for count in 1..=3 {
+                signal::kill(pid, Signal::SIGUSR1)?;
+                wait_for_file_contents(
+                    &ctx.temp_dir.path().join("focus_signals"),
+                    &"handled\n".repeat(count),
+                )
+                .await?;
+            }
+            focus_test_barrier(&ctx, &mut child).await?;
+            assert!(
+                !child.is_matched(Regex("(?s).+"))?,
+                "Unfocused redraws must emit no bytes ({terminal}, {keymap})"
+            );
+
+            child.send("\x1b[I")?;
+            focus_test_barrier(&ctx, &mut child).await?;
+            let output = child.check(Regex("(?s).+"))?;
+            let output = String::from_utf8_lossy(output.as_bytes());
+            assert_eq!(output.matches(SHELL_PROMPT).count(), 1, "{output:?}");
+            assert_eq!(
+                fs::read_to_string(ctx.temp_dir.path().join("focus_buffer"))?,
+                "echo preserved\n",
+                "{terminal}, {keymap}, redraw: {output:?}"
+            );
+
+            child.send("\x1b[I")?;
+            focus_test_barrier(&ctx, &mut child).await?;
+            assert!(!child.is_matched(Regex("(?s).+"))?);
+
+            signal::kill(pid, Signal::SIGUSR1)?;
+            child.expect(SHELL_PROMPT)?;
+            child.send_line("")?;
+            child.expect("\x1b[?1004l")?;
+            child.expect("preserved\r\n")?;
+            child.expect("\x1b[?1004h")?;
+            focus_test_barrier(&ctx, &mut child).await?;
+            assert_eq!(
+                fs::read_to_string(ctx.temp_dir.path().join("focus_hooks"))?,
+                "init\nfinish\ninit\nfinish\ninit\n"
+            );
+            child.send_line("exit")?;
+            child.expect("\x1b[?1004l")?;
+            child.expect(expectrl::Eof)?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_focus_reporting_leaves_other_terminals_unchanged() -> Result<()> {
+    let ctx = TestContext::new()?;
+    let mut child = focus_test_child(&ctx, "other-terminal")?;
+    focus_test_barrier(&ctx, &mut child).await?;
+    let output = child.check(Regex("(?s).+"))?;
+    assert!(!String::from_utf8_lossy(output.as_bytes()).contains("1004"));
+    let pid = fs::read_to_string(ctx.temp_dir.path().join("focus_pid"))?;
+    signal::kill(Pid::from_raw(pid.trim().parse()?), Signal::SIGUSR1)?;
+    child.expect(SHELL_PROMPT)?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_focus_reporting_pauses_during_incremental_search() -> Result<()> {
+    let ctx = TestContext::new()?;
+    let mut child = focus_test_child(&ctx, "iTerm.app")?;
+    child.expect("\x1b[?1004h")?;
+    child.send_line("echo search-needle")?;
+    child.expect("\x1b[?1004l")?;
+    child.expect("\x1b[?1004h")?;
+    child.send("\x12")?;
+    child
+        .expect("\x1b[?1004l")
+        .context("Entering search must disable focus reporting")?;
+    child.send("search-needle")?;
+    child.send("\x05")?;
+    child
+        .expect("\x1b[?1004h")
+        .context("Leaving search must enable focus reporting")?;
+    focus_test_barrier(&ctx, &mut child).await?;
+    assert_eq!(
+        fs::read_to_string(ctx.temp_dir.path().join("focus_buffer"))?,
+        "echo search-needle\n"
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn test_signal_delivery_to_shell() -> Result<()> {
     let ctx = TestContext::new()?;
