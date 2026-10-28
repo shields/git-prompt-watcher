@@ -1,11 +1,11 @@
-FROM rust:1.99.1-slim-bookworm@sha256:24707e70a4f1e23d9a7b25202ec43126d28a52294b96aad5c670df1fd1f1d400
+FROM rust:1.99.1-slim-trixie@sha256:b8e062b1c3a80183df83d9ba187cadd2b5ab84bc78d453dbfeb2fccd5f982247
 
 # Snapshots must be new enough to provide matching development packages for
 # libraries installed in the pinned base image; refresh them with base updates.
 RUN rm -f /etc/apt/sources.list.d/debian.sources \
-    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20261028T143257Z bookworm main" > /etc/apt/sources.list \
-    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20261028T064808Z bookworm-security main" >> /etc/apt/sources.list \
-    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20261028T143257Z bookworm-updates main" >> /etc/apt/sources.list \
+    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20261028T143257Z trixie main" > /etc/apt/sources.list \
+    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20261028T064808Z trixie-security main" >> /etc/apt/sources.list \
+    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20261028T143257Z trixie-updates main" >> /etc/apt/sources.list \
     && apt-get update && apt-get install -y --no-install-recommends \
     curl \
     fswatch \

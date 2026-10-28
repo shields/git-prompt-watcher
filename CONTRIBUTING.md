@@ -49,7 +49,6 @@ just test
 
 The project includes a fully reproducible Docker CI setup to ensure consistency.
 
-- **Base image**: `rust:1.96.0-slim-bookworm` with a pinned SHA256 digest.
 - **Reproducible builds**: Uses Debian snapshot archives with specific timestamps.
 - **Pinned tools**: `just`, `starship`, and `uv` are installed at exact versions.
 - **Complete toolchain**: Includes Rust, cargo, `just`, `starship`, and all testing dependencies.
@@ -57,7 +56,7 @@ The project includes a fully reproducible Docker CI setup to ensure consistency.
 When updating the base image in `tests/Dockerfile`, refresh the Debian and
 Debian security snapshot timestamps to at least the image's build date. An older
 snapshot can lack development packages matching libraries already installed in
-the image, causing dependency conflicts such as `libssl-dev` versus `libssl3`.
+the image, causing conflicts between OpenSSL development and runtime packages.
 Keep both snapshot timestamps pinned and verify the updated combination with
 `just docker-ci`.
 
