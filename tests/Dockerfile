@@ -1,13 +1,11 @@
-FROM rust:1.96.0-slim-bookworm@sha256:b5f842fac1e3b4ff718a652a8e0173b62d9403ec826ef4998880b9347db30684
+FROM rust:1.96.0-slim-bookworm@sha256:4732ca96fd086cb9be682050c3f0176288eebaac2b80aa2bcefccfaf198e1950
 
-# Use Debian snapshot for reproducible builds.
-# The snapshot provides immutable package versions; the base image is pinned by
-# digest. Together these give reproducibility without fragile version pins that
-# break when the base image's pre-installed packages drift from the snapshot.
+# Snapshots must be new enough to provide matching development packages for
+# libraries installed in the pinned base image; refresh them with base updates.
 RUN rm -f /etc/apt/sources.list.d/debian.sources \
-    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260523T211231Z bookworm main" > /etc/apt/sources.list \
-    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20260523T195511Z bookworm-security main" >> /etc/apt/sources.list \
-    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260523T211231Z bookworm-updates main" >> /etc/apt/sources.list \
+    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20261028T143257Z bookworm main" > /etc/apt/sources.list \
+    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20261028T064808Z bookworm-security main" >> /etc/apt/sources.list \
+    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20261028T143257Z bookworm-updates main" >> /etc/apt/sources.list \
     && apt-get update && apt-get install -y --no-install-recommends \
     curl \
     fswatch \

@@ -54,6 +54,13 @@ The project includes a fully reproducible Docker CI setup to ensure consistency.
 - **Pinned tools**: `just`, `starship`, and `uv` are installed at exact versions.
 - **Complete toolchain**: Includes Rust, cargo, `just`, `starship`, and all testing dependencies.
 
+When updating the base image in `tests/Dockerfile`, refresh the Debian and
+Debian security snapshot timestamps to at least the image's build date. An older
+snapshot can lack development packages matching libraries already installed in
+the image, causing dependency conflicts such as `libssl-dev` versus `libssl3`.
+Keep both snapshot timestamps pinned and verify the updated combination with
+`just docker-ci`.
+
 To run the full CI suite inside Docker:
 
 ```bash
