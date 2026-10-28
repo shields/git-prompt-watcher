@@ -1,4 +1,4 @@
-FROM rust:1.96.0-slim-bookworm@sha256:4732ca96fd086cb9be682050c3f0176288eebaac2b80aa2bcefccfaf198e1950
+FROM rust:1.99.1-slim-bookworm@sha256:24707e70a4f1e23d9a7b25202ec43126d28a52294b96aad5c670df1fd1f1d400
 
 # Snapshots must be new enough to provide matching development packages for
 # libraries installed in the pinned base image; refresh them with base updates.
