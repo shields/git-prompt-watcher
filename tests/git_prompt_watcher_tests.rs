@@ -383,7 +383,7 @@ fn is_fswatch_running(pid: u32) -> bool {
     if pid == 0 {
         return false;
     }
-    let mut sys = System::new();
+    let mut sys = System::new().expect("Failed to initialize process monitoring");
     sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
     sys.process(sysinfo::Pid::from(pid as usize))
         .is_some_and(|p| p.name().to_string_lossy().contains("fswatch"))
@@ -391,7 +391,7 @@ fn is_fswatch_running(pid: u32) -> bool {
 
 fn watched_paths(pid: u32) -> Result<Vec<PathBuf>> {
     let pid = sysinfo::Pid::from(pid as usize);
-    let mut sys = System::new();
+    let mut sys = System::new().context("Failed to initialize process monitoring")?;
     sys.refresh_processes_specifics(
         sysinfo::ProcessesToUpdate::Some(&[pid]),
         true,
@@ -497,7 +497,7 @@ fn start_foreground_job(session: &mut OsSession) -> Result<Pid> {
 async fn wait_for_shell_exit(pid: Pid) -> Result<()> {
     let pid = sysinfo::Pid::from(usize::try_from(pid.as_raw()).context("Shell PID was negative")?);
     let start = tokio::time::Instant::now();
-    let mut system = System::new();
+    let mut system = System::new().context("Failed to initialize process monitoring")?;
     while start.elapsed() < PROCESS_POLL_TIMEOUT {
         system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
         match system.process(pid) {
@@ -932,7 +932,7 @@ async fn test_gitignore_change_handling() -> Result<()> {
     // Wait for watcher to restart and be fully running after gitignore change
     let current_pid = wait_for_fswatch_to_start(&mut child).await?;
 
-    let mut sys = System::new();
+    let mut sys = System::new().context("Failed to initialize process monitoring")?;
     sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
     assert!(
         sys.process(sysinfo::Pid::from(current_pid as usize))
@@ -1758,7 +1758,7 @@ async fn test_fswatch_jobs_not_cluttering_output() -> Result<()> {
     let watcher_pid = get_watcher_pid(&mut child)?;
 
     // Verify watcher is running
-    let mut sys = System::new();
+    let mut sys = System::new().context("Failed to initialize process monitoring")?;
     sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
     assert!(
         sys.process(sysinfo::Pid::from(watcher_pid as usize))
