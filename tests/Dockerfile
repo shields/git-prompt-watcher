@@ -1,4 +1,4 @@
-FROM rust:1.99.1-slim-trixie@sha256:b8e062b1c3a80183df83d9ba187cadd2b5ab84bc78d453dbfeb2fccd5f982247
+FROM rust:1.99.1-slim-trixie@sha256:9daf2b244ccc30523e55cafe32edf8465671ba567d0101620e5612ccb76ea1a7
 
 # Snapshots must be new enough to provide matching development packages for
 # libraries installed in the pinned base image; refresh them with base updates.
