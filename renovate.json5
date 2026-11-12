@@ -1,9 +1,8 @@
 {
-  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:best-practices", ":semanticCommitsDisabled"],
-  "ignorePaths": [],
-  "abandonmentThreshold": "2 years",
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: ["github>shields/right-answers//renovate/base.json5"],
+  ignorePaths: [],
+  abandonmentThreshold: "2 years",
   // Dependencies support test tooling, so major updates are also eligible for automerge.
-  "automerge": true,
-  "platformAutomerge": true
+  automerge: true,
 }

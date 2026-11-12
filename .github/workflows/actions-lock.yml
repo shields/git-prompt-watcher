@@ -1,0 +1,27 @@
+# Copyright 2026 Michael Shields. Licensed under the Apache License, Version 2.0.
+
+name: Workflow lockfile
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  actions-lock:
+    name: actions-lock
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - run: make actions-lock-install actions-lock-verify
+        env:
+          GH_TOKEN: ${{ github.token }}
