@@ -3,9 +3,9 @@ FROM rust:1.99.1-slim-trixie@sha256:f6c4a35d21dbb3c89d7a8d056c193e94fc09037f2b58
 # Snapshots must be new enough to provide matching development packages for
 # libraries installed in the pinned base image; refresh them with base updates.
 RUN rm -f /etc/apt/sources.list.d/debian.sources \
-    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20261028T143257Z trixie main" > /etc/apt/sources.list \
-    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20261028T064808Z trixie-security main" >> /etc/apt/sources.list \
-    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20261028T143257Z trixie-updates main" >> /etc/apt/sources.list \
+    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20261106T203421Z trixie main" > /etc/apt/sources.list \
+    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20261106T203307Z trixie-security main" >> /etc/apt/sources.list \
+    && echo "deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20261106T203421Z trixie-updates main" >> /etc/apt/sources.list \
     && apt-get update && apt-get install -y --no-install-recommends \
     curl \
     fswatch \

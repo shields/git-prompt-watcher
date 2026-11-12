@@ -353,6 +353,7 @@ precmd() { echo "$PROMPT_MARKER" }
 
         let mut command = Command::new("zsh");
         command.arg("-i"); // Start an interactive shell
+        command.env("TERM", "xterm-256color");
         command.env("ZDOTDIR", self.temp_dir.path());
         command.env("GPW_PLUGIN_PATH", &self.plugin_path);
         command.env("GPW_TEMP_DIR", self.temp_dir.path());

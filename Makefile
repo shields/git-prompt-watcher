@@ -18,7 +18,8 @@ ci: lint
 	just check test-verbose
 
 docker-ci:
-	just docker-ci
+	docker build -t git-prompt-watcher-test -f tests/Dockerfile .
+	docker run --rm git-prompt-watcher-test
 
 .PHONY: actions-lock-install actions-lock actions-lock-verify-local actions-lock-verify
 
