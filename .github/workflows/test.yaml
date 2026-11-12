@@ -37,6 +37,10 @@ jobs:
       - name: Configure git (macOS)
         if: runner.os == 'macOS'
         run: git config --global init.defaultBranch main
+      - if: runner.os == 'macOS'
+        run: make actions-lock-install
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Run tests natively (macOS)
         if: runner.os == 'macOS'
