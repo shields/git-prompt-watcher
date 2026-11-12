@@ -45,7 +45,7 @@ jobs:
       - name: Run tests natively (macOS)
         if: runner.os == 'macOS'
         run: make ci
-    name: test
+    name: test (${{ matrix.os }})
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
