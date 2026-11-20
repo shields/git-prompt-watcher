@@ -24,7 +24,7 @@ docker-ci:
 .PHONY: actions-lock-install actions-lock actions-lock-verify-local actions-lock-verify
 
 actions-lock-install:
-	gh extension install github/gh-actions-lock --pin v0.5.0 --force
+	gh extension install github/gh-actions-lock --pin v0.5.1 --force
 
 actions-lock:
 	gh actions-lock --no-interactive
